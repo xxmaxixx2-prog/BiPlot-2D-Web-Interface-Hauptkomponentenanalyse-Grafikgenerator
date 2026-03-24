@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BiPlotteR – Prototyp 01</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <h1>BiPlotteR – Prototyp 01</h1>
+        <p>2D-Prototyp für Forschungsstudien mit manueller Eingabe, variablen Gegenpolen und Live-Plot.</p>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="resetBtn" class="secondary">Demo laden</button>
+        <button id="importBtn" class="secondary">JSON importieren</button>
+        <button id="exportBtn">JSON exportieren</button>
+        <button id="exportAnalysisBtn" class="secondary">Analyse exportieren</button>
+        <input id="importFileInput" type="file" accept=".json,application/json" hidden />
+      </div>
+
+      <div id="messageBox" class="message" aria-live="polite"></div>
+    </header>
+
+    <main class="layout">
+      <section class="panel controls">
+        <h2>1) Kriterien / Gegenpole</h2>
+        <p class="hint">
+          Jede Zeile beschreibt ein Gegensatzpaar. Mit dem Winkel-Slider legst du die Richtung im Plot fest.
+          Der Gegenpol liegt automatisch auf der gegenüberliegenden Seite.
+        </p>
+        <div id="criteriaList" class="criteria-list"></div>
+        <div class="row-actions">
+          <button id="addCriterionBtn" class="secondary">+ Kriterium</button>
+        </div>
+
+        <h2>2) Berufe / Objekte</h2>
+        <p class="hint">
+          Wertebereich aktuell: 1 bis 6. Später kann man das auch automatisch aus Daten importieren.
+        </p>
+        <div id="objectsControls" class="objects-controls"></div>
+        <div class="row-actions">
+          <button id="addObjectBtn" class="secondary">+ Objekt</button>
+        </div>
+
+        <h2>3) Matrix</h2>
+        <div class="table-wrap">
+          <table id="matrixTable"></table>
+        </div>
+      </section>
+
+      <section class="panel plot-panel">
+        <div class="plot-header">
+          <div>
+            <h2>4) 2D-Biplot</h2>
+            <p class="hint">
+              MVP-Rechenlogik: Die Objektposition ergibt sich aus den Kriteriumswerten und den manuell gesetzten Richtungen.
+            </p>
+          </div>
+
+          <div class="plot-options">
+            <label>
+              Plot-Größe
+              <input id="plotSizeInput" type="range" min="450" max="900" step="10" value="650" />
+            </label>
+
+            <label class="checkbox-label">
+              <input id="avoidOverlapInput" type="checkbox" checked />
+              Label-Overlap entschärfen
+            </label>
+          </div>
+        </div>
+
+        <div id="plotWrapper" class="plot-wrapper" style="width: 650px; height: 650px;">
+          <svg id="plot" viewBox="0 0 650 650" aria-label="2D-Biplot"></svg>
+        </div>
+      </section>
+    </main>
+
+    <section class="panel">
+      <h2>Analyse / Ergebnisse</h2>
+
+      <h3>Deskriptive Statistik</h3>
+      <div id="statsTableWrap"></div>
+
+      <h3>Korrelationen</h3>
+      <div id="correlationTableWrap"></div>
+
+      <h3>PCA Zusammenfassung</h3>
+      <div id="pcaSummary"></div>
+
+      <h3>PCA Objekt-Koordinaten</h3>
+      <div id="pcaObjectsWrap"></div>
+
+      <h3>PCA Kriterium-Koordinaten</h3>
+      <div id="pcaVariablesWrap"></div>
+    </section>
+  </div>
+
+  <template id="criterionTemplate">
+    <div class="criterion-card">
+      <div class="criterion-header">
+        <strong class="criterion-title">Kriterium</strong>
+        <button class="danger remove-criterion-btn" type="button">Entfernen</button>
+      </div>
+
+      <div class="criterion-grid">
+        <label>
+          Linker Pol
+          <input class="left-label-input" type="text" />
+        </label>
+
+        <label>
+          Rechter Pol
+          <input class="right-label-input" type="text" />
+        </label>
+
+        <label>
+          Winkel
+          <input class="angle-input" type="range" min="0" max="359" step="1" />
+          <span class="angle-value"></span>
+        </label>
+
+        <label>
+          Stärke
+          <input class="weight-input" type="range" min="0.2" max="2.5" step="0.1" />
+          <span class="weight-value"></span>
+        </label>
+      </div>
+    </div>
+  </template>
+
+  <script src="script.js"></script>
+</body>
+</html>
