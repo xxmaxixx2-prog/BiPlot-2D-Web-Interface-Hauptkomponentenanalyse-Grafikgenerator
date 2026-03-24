@@ -277,3 +277,49 @@ svg {
   font-size: 18px;
   font-weight: 700;
 }
+
+.plot-options {
+  display: grid;
+  gap: 12px;
+  min-width: 280px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#autoArrangeBtn {
+  white-space: nowrap;
+}
+
+.auto-layout-notice {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.auto-layout-notice strong {
+  display: block;
+  color: #0f172a;
+}
+
+.auto-layout-notice.is-ok {
+  background: #ecfdf5;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.auto-layout-notice.is-warning {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}

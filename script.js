@@ -37,6 +37,8 @@ const messageBox = document.getElementById('messageBox');
 const plotSizeInput = document.getElementById('plotSizeInput');
 const avoidOverlapInput = document.getElementById('avoidOverlapInput');
 const importFileInput = document.getElementById('importFileInput');
+const autoArrangeBtn = document.getElementById('autoArrangeBtn');
+const autoLayoutNotice = document.getElementById('autoLayoutNotice');
 
 function cloneDemo() {
   return JSON.parse(JSON.stringify(demoState));
@@ -54,8 +56,18 @@ function clamp(value, min, max, fallback) {
   return Math.max(min, Math.min(max, number));
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function sanitizeState(raw) {
   const source = raw && typeof raw === 'object' && raw.state ? raw.state : raw;
+
   if (!source || typeof source !== 'object') {
     throw new Error('JSON hat keine gültige Struktur.');
   }
@@ -95,39 +107,134 @@ function loadState(newState) {
   state.objects = safeState.objects;
   state.settings = { ...state.settings, ...safeState.settings };
   ensureMatrixConsistency();
+
   if (avoidOverlapInput) {
     avoidOverlapInput.checked = state.settings.avoidOverlap;
   }
+
   renderAll();
 }
 
 function ensureMatrixConsistency() {
   const criteriaCount = state.criteria.length;
+
   state.objects.forEach((obj) => {
     if (!Array.isArray(obj.values)) obj.values = [];
-    while (obj.values.length < criteriaCount) obj.values.push(3);
-    if (obj.values.length > criteriaCount) obj.values = obj.values.slice(0, criteriaCount);
+
+    while (obj.values.length < criteriaCount) {
+      obj.values.push(3);
+    }
+
+    if (obj.values.length > criteriaCount) {
+      obj.values = obj.values.slice(0, criteriaCount);
+    }
+
     obj.values = obj.values.map((value) => Math.round(clamp(value, 1, 6, 3)));
   });
 }
 
-function renderAll() {
-  renderCriteriaControls();
-  renderObjectControls();
-  renderMatrix();
-  drawPlot();
-  renderAnalysis();
-}
-
 function showMessage(text, type = 'success') {
   if (!messageBox) return;
+
   messageBox.textContent = text;
   messageBox.className = `message is-visible ${type === 'error' ? 'is-error' : 'is-success'}`;
+
   window.clearTimeout(showMessage.timer);
   showMessage.timer = window.setTimeout(() => {
     messageBox.className = 'message';
     messageBox.textContent = '';
   }, 3800);
+}
+
+function renderAutoLayoutNotice(result = null) {
+  if (!autoLayoutNotice) return;
+
+  if (!result) {
+    autoLayoutNotice.className = 'auto-layout-notice';
+    autoLayoutNotice.innerHTML = `
+      <strong>Hinweis zur Auto-Anordnung</strong>
+      <span>
+        Berufe/Objekte dürfen ähnlich sein. Kriterien sollten sich jedoch möglichst unterscheiden.
+        Zu viele ähnliche Kriterien verfälschen die Projektion und gewichten einzelne Richtungen zu stark.
+      </span>
+    `;
+    return;
+  }
+
+  const pairs = Array.isArray(result.redundantPairs) ? result.redundantPairs.slice(0, 3) : [];
+  const pairText = pairs.length
+    ? pairs
+        .map((pair) => {
+          const a = escapeHtml(pair.labelA);
+          const b = escapeHtml(pair.labelB);
+          const corr = Number.isFinite(pair.corr) ? pair.corr.toFixed(2) : '0.00';
+          return `${a} / ${b} (${pair.relation}, r=${corr})`;
+        })
+        .join('; ')
+    : 'Keine stark redundanten Kriterienpaare erkannt.';
+
+  const explained =
+    Array.isArray(result.explainedVariance) && result.explainedVariance.length >= 2
+      ? Math.round((result.explainedVariance[0] + result.explainedVariance[1]) * 100)
+      : null;
+
+  autoLayoutNotice.className = `auto-layout-notice ${
+    result.redundantPairs && result.redundantPairs.length ? 'is-warning' : 'is-ok'
+  }`;
+
+  autoLayoutNotice.innerHTML = `
+    <strong>Auto-Anordnung angewendet</strong>
+    <span>
+      Berufe/Objekte dürfen ähnlich sein. Kriterien sollten sich jedoch unterscheiden.
+      ${pairText}
+      ${explained !== null ? ` PC1/PC2 erklären hier ungefähr ${explained}% der Kriteriumsstruktur.` : ''}
+    </span>
+  `;
+}
+
+function renderAll() {
+  ensureMatrixConsistency();
+  renderCriteriaControls();
+  renderObjectControls();
+  renderMatrix();
+  drawPlot();
+  renderAnalysis();
+  renderAutoLayoutNotice();
+}
+
+function handleAutoArrangeClick() {
+  if (!window.BiPlotteRAutoLayout || typeof window.BiPlotteRAutoLayout.analyze !== 'function') {
+    showMessage('auto-layout.js wurde nicht gefunden oder nicht korrekt geladen.', 'error');
+    return;
+  }
+
+  try {
+    ensureMatrixConsistency();
+
+    const result = window.BiPlotteRAutoLayout.analyze(state);
+
+    if (!result || !Array.isArray(result.angles)) {
+      throw new Error('Auto-Layout hat keine gültigen Winkel zurückgegeben.');
+    }
+
+    result.angles.forEach((angle, index) => {
+      if (!state.criteria[index]) return;
+      state.criteria[index].angle = normalizeAngle(angle);
+    });
+
+    renderAll();
+    renderAutoLayoutNotice(result);
+
+    const pairCount = Array.isArray(result.redundantPairs) ? result.redundantPairs.length : 0;
+    const message =
+      pairCount > 0
+        ? `Auto-Anordnung aktiv. ${pairCount} stark ähnliche oder gegensätzliche Kriterienpaare erkannt.`
+        : 'Auto-Anordnung aktiv. Keine starke Kriterien-Redundanz erkannt.';
+
+    showMessage(message, 'success');
+  } catch (error) {
+    showMessage(`Auto-Anordnung fehlgeschlagen: ${error.message}`, 'error');
+  }
 }
 
 function renderCriteriaControls() {
@@ -154,38 +261,44 @@ function renderCriteriaControls() {
     angleValue.textContent = `${criterion.angle}°`;
     weightValue.textContent = `${criterion.weight}`;
 
-    leftInput.addEventListener('input', (e) => {
-      criterion.left = e.target.value;
+    leftInput.addEventListener('input', (event) => {
+      criterion.left = event.target.value;
       renderMatrix();
       drawPlot();
       renderAnalysis();
+      renderAutoLayoutNotice();
     });
 
-    rightInput.addEventListener('input', (e) => {
-      criterion.right = e.target.value;
+    rightInput.addEventListener('input', (event) => {
+      criterion.right = event.target.value;
       renderMatrix();
       drawPlot();
       renderAnalysis();
+      renderAutoLayoutNotice();
     });
 
-    angleInput.addEventListener('input', (e) => {
-      criterion.angle = normalizeAngle(e.target.value);
+    angleInput.addEventListener('input', (event) => {
+      criterion.angle = normalizeAngle(event.target.value);
       angleValue.textContent = `${criterion.angle}°`;
       drawPlot();
+      renderAutoLayoutNotice();
     });
 
-    weightInput.addEventListener('input', (e) => {
-      criterion.weight = clamp(e.target.value, 0.2, 2.5, 1);
+    weightInput.addEventListener('input', (event) => {
+      criterion.weight = clamp(event.target.value, 0.2, 2.5, 1);
       weightValue.textContent = `${criterion.weight}`;
       drawPlot();
+      renderAutoLayoutNotice();
     });
 
     removeBtn.addEventListener('click', () => {
       state.criteria.splice(index, 1);
       state.objects.forEach((obj) => obj.values.splice(index, 1));
+
       if (state.criteria.length === 0) {
         state.criteria.push({ left: 'neuer Pol A', right: 'neuer Pol B', angle: 0, weight: 1 });
       }
+
       renderAll();
     });
 
@@ -207,11 +320,12 @@ function renderObjectControls() {
     const input = document.createElement('input');
     input.type = 'text';
     input.value = obj.name;
-    input.addEventListener('input', (e) => {
-      obj.name = e.target.value;
+    input.addEventListener('input', (event) => {
+      obj.name = event.target.value;
       renderMatrix();
       drawPlot();
       renderAnalysis();
+      renderAutoLayoutNotice();
     });
 
     label.appendChild(input);
@@ -243,7 +357,7 @@ function renderMatrix() {
 
   state.criteria.forEach((criterion) => {
     const th = document.createElement('th');
-    th.innerHTML = `${criterion.left}<br><small>↔ ${criterion.right}</small>`;
+    th.innerHTML = `${escapeHtml(criterion.left)}<br><small>↔ ${escapeHtml(criterion.right)}</small>`;
     headerRow.appendChild(th);
   });
 
@@ -260,11 +374,12 @@ function renderMatrix() {
     nameInput.type = 'text';
     nameInput.value = obj.name;
     nameInput.className = 'matrix-name-input';
-    nameInput.addEventListener('input', (e) => {
-      obj.name = e.target.value;
+    nameInput.addEventListener('input', (event) => {
+      obj.name = event.target.value;
       renderObjectControls();
       drawPlot();
       renderAnalysis();
+      renderAutoLayoutNotice();
     });
     nameTd.appendChild(nameInput);
     tr.appendChild(nameTd);
@@ -278,11 +393,12 @@ function renderMatrix() {
       input.step = '1';
       input.value = obj.values[criterionIndex] ?? 3;
       input.className = 'matrix-value-input';
-      input.addEventListener('input', (e) => {
-        obj.values[criterionIndex] = Math.round(clamp(e.target.value, 1, 6, 3));
-        e.target.value = obj.values[criterionIndex];
+      input.addEventListener('input', (event) => {
+        obj.values[criterionIndex] = Math.round(clamp(event.target.value, 1, 6, 3));
+        event.target.value = obj.values[criterionIndex];
         drawPlot();
         renderAnalysis();
+        renderAutoLayoutNotice();
       });
       td.appendChild(input);
       tr.appendChild(td);
@@ -295,7 +411,7 @@ function renderMatrix() {
 }
 
 function polarToCartesian(angleDeg, radius) {
-  const rad = (angleDeg - 90) * Math.PI / 180;
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
   return {
     x: Math.cos(rad) * radius,
     y: Math.sin(rad) * radius
@@ -600,16 +716,16 @@ function handleImportFile(file) {
 ========================= */
 
 function getCriterionNames() {
-  return state.criteria.map((c, i) => ({
-    index: i,
-    label: `${c.left} ↔ ${c.right}`
+  return state.criteria.map((criterion, index) => ({
+    index,
+    label: `${criterion.left} ↔ ${criterion.right}`
   }));
 }
 
 function getDataMatrix() {
   return state.objects.map((obj) =>
-    state.criteria.map((_, i) => {
-      const value = obj.values?.[i] ?? 3;
+    state.criteria.map((_, index) => {
+      const value = obj.values?.[index] ?? 3;
       return Number(value);
     })
   );
@@ -617,7 +733,7 @@ function getDataMatrix() {
 
 function mean(arr) {
   if (!arr.length) return 0;
-  return arr.reduce((sum, v) => sum + v, 0) / arr.length;
+  return arr.reduce((sum, value) => sum + value, 0) / arr.length;
 }
 
 function minValue(arr) {
@@ -632,14 +748,14 @@ function maxValue(arr) {
 
 function sampleSD(arr) {
   if (arr.length < 2) return 0;
-  const m = mean(arr);
-  const variance = arr.reduce((sum, v) => sum + (v - m) ** 2, 0) / (arr.length - 1);
+  const avg = mean(arr);
+  const variance = arr.reduce((sum, value) => sum + (value - avg) ** 2, 0) / (arr.length - 1);
   return Math.sqrt(variance);
 }
 
 function rms(arr) {
   if (!arr.length) return 0;
-  return Math.sqrt(arr.reduce((sum, v) => sum + v * v, 0) / arr.length);
+  return Math.sqrt(arr.reduce((sum, value) => sum + value * value, 0) / arr.length);
 }
 
 function roundStat(value, digits = 4) {
@@ -654,15 +770,15 @@ function computeDescriptiveStats() {
   const matrix = getDataMatrix();
   const criterionNames = getCriterionNames();
 
-  return criterionNames.map((criterion, i) => {
-    const col = getColumn(matrix, i);
+  return criterionNames.map((criterion, index) => {
+    const column = getColumn(matrix, index);
     return {
       criterion: criterion.label,
-      mean: roundStat(mean(col)),
-      sd: roundStat(sampleSD(col)),
-      min: roundStat(minValue(col)),
-      max: roundStat(maxValue(col)),
-      rms: roundStat(rms(col))
+      mean: roundStat(mean(column)),
+      sd: roundStat(sampleSD(column)),
+      min: roundStat(minValue(column)),
+      max: roundStat(maxValue(column)),
+      rms: roundStat(rms(column))
     };
   });
 }
@@ -672,12 +788,11 @@ function pearsonCorrelation(x, y) {
 
   const mx = mean(x);
   const my = mean(y);
-
   let numerator = 0;
   let sx = 0;
   let sy = 0;
 
-  for (let i = 0; i < x.length; i++) {
+  for (let i = 0; i < x.length; i += 1) {
     const dx = x[i] - mx;
     const dy = y[i] - my;
     numerator += dx * dy;
@@ -695,13 +810,14 @@ function computeCorrelationMatrix() {
   const matrix = getDataMatrix();
   const names = getCriterionNames();
 
-  return names.map((rowCriterion, i) => {
+  return names.map((rowCriterion, rowIndex) => {
     const row = {};
-    names.forEach((colCriterion, j) => {
-      const xi = getColumn(matrix, i);
-      const yj = getColumn(matrix, j);
+    names.forEach((colCriterion, colIndex) => {
+      const xi = getColumn(matrix, rowIndex);
+      const yj = getColumn(matrix, colIndex);
       row[colCriterion.label] = roundStat(pearsonCorrelation(xi, yj));
     });
+
     return {
       criterion: rowCriterion.label,
       correlations: row
@@ -716,17 +832,14 @@ function standardizeMatrix(matrix) {
   const means = [];
   const sds = [];
 
-  for (let j = 0; j < cols; j++) {
-    const col = getColumn(matrix, j);
-    means.push(mean(col));
-    const sd = sampleSD(col);
+  for (let columnIndex = 0; columnIndex < cols; columnIndex += 1) {
+    const column = getColumn(matrix, columnIndex);
+    means.push(mean(column));
+    const sd = sampleSD(column);
     sds.push(sd === 0 ? 1 : sd);
   }
 
-  const standardized = matrix.map((row) =>
-    row.map((value, j) => (value - means[j]) / sds[j])
-  );
-
+  const standardized = matrix.map((row) => row.map((value, j) => (value - means[j]) / sds[j]));
   return { standardized, means, sds };
 }
 
@@ -741,9 +854,9 @@ function multiplyMatrices(a, b) {
   const colsB = b[0].length;
   const result = Array.from({ length: rowsA }, () => Array(colsB).fill(0));
 
-  for (let i = 0; i < rowsA; i++) {
-    for (let j = 0; j < colsB; j++) {
-      for (let k = 0; k < colsA; k++) {
+  for (let i = 0; i < rowsA; i += 1) {
+    for (let j = 0; j < colsB; j += 1) {
+      for (let k = 0; k < colsA; k += 1) {
         result[i][j] += a[i][k] * b[k][j];
       }
     }
@@ -758,27 +871,25 @@ function covarianceMatrixFromStandardized(standardized) {
 
   const zt = transpose(standardized);
   const product = multiplyMatrices(zt, standardized);
-  return product.map((row) => row.map((v) => v / (n - 1)));
+  return product.map((row) => row.map((value) => value / (n - 1)));
 }
 
 function vectorNorm(vector) {
-  return Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
+  return Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
 }
 
 function multiplyMatrixVector(matrix, vector) {
-  return matrix.map((row) =>
-    row.reduce((sum, value, i) => sum + value * vector[i], 0)
-  );
+  return matrix.map((row) => row.reduce((sum, value, i) => sum + value * vector[i], 0));
 }
 
 function dot(a, b) {
-  return a.reduce((sum, v, i) => sum + v * b[i], 0);
+  return a.reduce((sum, value, i) => sum + value * b[i], 0);
 }
 
 function normalizeVector(vector) {
   const norm = vectorNorm(vector);
   if (norm === 0) return vector.map(() => 0);
-  return vector.map((v) => v / norm);
+  return vector.map((value) => value / norm);
 }
 
 function outerProduct(a, b) {
@@ -786,14 +897,14 @@ function outerProduct(a, b) {
 }
 
 function subtractMatrices(a, b) {
-  return a.map((row, i) => row.map((v, j) => v - b[i][j]));
+  return a.map((row, i) => row.map((value, j) => value - b[i][j]));
 }
 
 function powerIteration(matrix, iterations = 100) {
   const size = matrix.length;
   let vector = Array(size).fill(1 / Math.sqrt(size));
 
-  for (let i = 0; i < iterations; i++) {
+  for (let i = 0; i < iterations; i += 1) {
     const next = multiplyMatrixVector(matrix, vector);
     vector = normalizeVector(next);
   }
@@ -808,20 +919,17 @@ function powerIteration(matrix, iterations = 100) {
 }
 
 function deflateMatrix(matrix, eigenvalue, eigenvector) {
-  const outer = outerProduct(eigenvector, eigenvector).map((row) =>
-    row.map((v) => v * eigenvalue)
-  );
+  const outer = outerProduct(eigenvector, eigenvector).map((row) => row.map((value) => value * eigenvalue));
   return subtractMatrices(matrix, outer);
 }
 
 function projectRows(matrix, components) {
-  return matrix.map((row) =>
-    components.map((component) => dot(row, component))
-  );
+  return matrix.map((row) => components.map((component) => dot(row, component)));
 }
 
 function computePCA2D() {
   const raw = getDataMatrix();
+
   if (!raw.length || !raw[0]?.length) {
     return {
       explainedVariance: [0, 0],
@@ -846,22 +954,20 @@ function computePCA2D() {
   const pc1 = powerIteration(cov, 120);
   const deflated = deflateMatrix(cov, pc1.eigenvalue, pc1.eigenvector);
   const pc2 = powerIteration(deflated, 120);
-
-  const totalVariance = cov.reduce((sum, row, i) => sum + row[i], 0) || 1;
-
+  const totalVariance = cov.reduce((sum, row, index) => sum + row[index], 0) || 1;
   const components = [pc1.eigenvector, pc2.eigenvector];
   const scores = projectRows(standardized, components);
 
-  const objectScores = state.objects.map((obj, i) => ({
+  const objectScores = state.objects.map((obj, index) => ({
     name: obj.name,
-    pc1: roundStat(scores[i]?.[0] ?? 0),
-    pc2: roundStat(scores[i]?.[1] ?? 0)
+    pc1: roundStat(scores[index]?.[0] ?? 0),
+    pc2: roundStat(scores[index]?.[1] ?? 0)
   }));
 
-  const variableLoadings = state.criteria.map((criterion, i) => ({
+  const variableLoadings = state.criteria.map((criterion, index) => ({
     criterion: `${criterion.left} ↔ ${criterion.right}`,
-    pc1: roundStat((pc1.eigenvector[i] ?? 0) * Math.sqrt(Math.max(pc1.eigenvalue, 0))),
-    pc2: roundStat((pc2.eigenvector[i] ?? 0) * Math.sqrt(Math.max(pc2.eigenvalue, 0)))
+    pc1: roundStat((pc1.eigenvector[index] ?? 0) * Math.sqrt(Math.max(pc1.eigenvalue, 0))),
+    pc2: roundStat((pc2.eigenvector[index] ?? 0) * Math.sqrt(Math.max(pc2.eigenvalue, 0)))
   }));
 
   return {
@@ -869,10 +975,7 @@ function computePCA2D() {
       roundStat((pc1.eigenvalue / totalVariance) * 100),
       roundStat((pc2.eigenvalue / totalVariance) * 100)
     ],
-    eigenvalues: [
-      roundStat(pc1.eigenvalue),
-      roundStat(pc2.eigenvalue)
-    ],
+    eigenvalues: [roundStat(pc1.eigenvalue), roundStat(pc2.eigenvalue)],
     objectScores,
     variableLoadings
   };
@@ -908,7 +1011,7 @@ function renderDescriptiveStatsTable(stats) {
   stats.forEach((row) => {
     html += `
       <tr>
-        <td>${row.criterion}</td>
+        <td>${escapeHtml(row.criterion)}</td>
         <td>${row.mean}</td>
         <td>${row.sd}</td>
         <td>${row.min}</td>
@@ -918,7 +1021,7 @@ function renderDescriptiveStatsTable(stats) {
     `;
   });
 
-  html += `</tbody></table>`;
+  html += '</tbody></table>';
   target.innerHTML = html;
 }
 
@@ -938,7 +1041,7 @@ function renderCorrelationTable(correlations) {
       <thead>
         <tr>
           <th>Kriterium</th>
-          ${headers.map((h) => `<th>${h}</th>`).join('')}
+          ${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}
         </tr>
       </thead>
       <tbody>
@@ -947,13 +1050,13 @@ function renderCorrelationTable(correlations) {
   correlations.forEach((row) => {
     html += `
       <tr>
-        <td>${row.criterion}</td>
-        ${headers.map((h) => `<td>${row.correlations[h]}</td>`).join('')}
+        <td>${escapeHtml(row.criterion)}</td>
+        ${headers.map((header) => `<td>${row.correlations[header]}</td>`).join('')}
       </tr>
     `;
   });
 
-  html += `</tbody></table>`;
+  html += '</tbody></table>';
   target.innerHTML = html;
 }
 
@@ -1001,14 +1104,14 @@ function renderPCATables(pca) {
     pca.objectScores.forEach((row) => {
       html += `
         <tr>
-          <td>${row.name}</td>
+          <td>${escapeHtml(row.name)}</td>
           <td>${row.pc1}</td>
           <td>${row.pc2}</td>
         </tr>
       `;
     });
 
-    html += `</tbody></table>`;
+    html += '</tbody></table>';
     objectTarget.innerHTML = html;
   }
 
@@ -1028,14 +1131,14 @@ function renderPCATables(pca) {
     pca.variableLoadings.forEach((row) => {
       html += `
         <tr>
-          <td>${row.criterion}</td>
+          <td>${escapeHtml(row.criterion)}</td>
           <td>${row.pc1}</td>
           <td>${row.pc2}</td>
         </tr>
       `;
     });
 
-    html += `</tbody></table>`;
+    html += '</tbody></table>';
     variableTarget.innerHTML = html;
   }
 }
@@ -1063,6 +1166,14 @@ function exportAnalysisResults() {
   };
 }
 
+if (autoArrangeBtn) {
+  autoArrangeBtn.addEventListener('click', handleAutoArrangeClick);
+}
+
+window.setTimeout(() => {
+  renderAutoLayoutNotice();
+}, 0);
+
 /* =========================
    EVENTS
 ========================= */
@@ -1074,6 +1185,7 @@ document.getElementById('addCriterionBtn')?.addEventListener('click', () => {
     angle: 0,
     weight: 1
   });
+
   state.objects.forEach((obj) => obj.values.push(3));
   renderAll();
 });
@@ -1088,8 +1200,8 @@ document.getElementById('addObjectBtn')?.addEventListener('click', () => {
 
 plotSizeInput?.addEventListener('input', drawPlot);
 
-avoidOverlapInput?.addEventListener('change', (e) => {
-  state.settings.avoidOverlap = e.target.checked;
+avoidOverlapInput?.addEventListener('change', (event) => {
+  state.settings.avoidOverlap = event.target.checked;
   drawPlot();
 });
 
@@ -1102,10 +1214,10 @@ document.getElementById('importBtn')?.addEventListener('click', () => {
   importFileInput?.click();
 });
 
-importFileInput?.addEventListener('change', (e) => {
-  const file = e.target.files?.[0];
+importFileInput?.addEventListener('change', (event) => {
+  const file = event.target.files?.[0];
   if (file) handleImportFile(file);
-  e.target.value = '';
+  event.target.value = '';
 });
 
 document.getElementById('exportBtn')?.addEventListener('click', () => {

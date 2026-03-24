@@ -61,17 +61,29 @@
             </p>
           </div>
 
-          <div class="plot-options">
-            <label>
-              Plot-Größe
-              <input id="plotSizeInput" type="range" min="450" max="900" step="10" value="650" />
-            </label>
+<div id="autoLayoutNotice" class="auto-layout-notice" aria-live="polite">
+  <strong>Hinweis zur Auto-Anordnung</strong>
+  <span>
+    Berufe/Objekte dürfen ähnlich sein. Kriterien sollten sich jedoch möglichst unterscheiden.
+    Zu viele ähnliche Kriterien verfälschen die Projektion und gewichten einzelne Richtungen zu stark.
+  </span>
+</div>
 
-            <label class="checkbox-label">
-              <input id="avoidOverlapInput" type="checkbox" checked />
-              Label-Overlap entschärfen
-            </label>
-          </div>
+        <div class="plot-options">
+  <label>
+    Plot-Größe
+    <input id="plotSizeInput" type="range" min="450" max="900" step="10" value="650" />
+  </label>
+
+  <label class="checkbox-label">
+    <input id="avoidOverlapInput" type="checkbox" checked />
+    Label-Overlap entschärfen
+  </label>
+
+  <button id="autoArrangeBtn" class="secondary" type="button">
+    Kriterien automatisch anordnen
+  </button>
+</div>
         </div>
 
         <div id="plotWrapper" class="plot-wrapper" style="width: 650px; height: 650px;">
@@ -133,6 +145,7 @@
     </div>
   </template>
 
+  <script src="auto-layout.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
