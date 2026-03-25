@@ -1,9 +1,9 @@
 # BiPlotteR / Biplot Generator
-
-https://xxmaxixx2-prog.github.io/BiPlotteR-Prototyp-Version-3/ 
+Link zum sofort nutzen:
+https://xxmaxixx2-prog.github.io/BiPlot-2D-Web-Interface-Hauptkomponentenanalyse-Grafikgenerator/
 
 ## Was ist das?
-Dieses Tool hilft dabei, ein Repertory Grid bzw. einen einfachen Biplot für Berufsvergleiche zu erstellen.
+Dieses Tool hilft dabei, ein Repertory Grid bzw. einen einfachen Biplot um z.B Berufsvergleiche zu erstellen.
 
 Man kann Berufe und Merkmale eingeben und daraus berechnen lassen:
 - Mittelwerte
@@ -12,7 +12,7 @@ Man kann Berufe und Merkmale eingeben und daraus berechnen lassen:
 - Hauptkomponenten (PC1, PC2, optional PC3)
 - Positionen im Biplot
 
-Ziel ist es, Unterschiede, Gegensätze und Zusammenhänge zwischen Berufen sichtbar zu machen.
+Ziel ist es, Unterschiede, Gegensätze und Zusammenhänge zwischen Objekten sichtbar zu machen.
 
 ---
 
