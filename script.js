@@ -446,6 +446,118 @@ function getAnchor(x) {
   return 'middle';
 }
 
+/* =========================
+   GRAFIK-FIX: Text messen + Kriterien-Labels sicher platzieren
+   - dynamischer Rand statt starrem Padding
+   - Labels innerhalb des SVG halten
+   - Kollisionen zwischen Kriterien-Labels entschärfen
+========================= */
+
+function measureTextWidth(text, font = '12px Arial') {
+  const canvas = measureTextWidth.canvas || (measureTextWidth.canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+  ctx.font = font;
+  return Math.ceil(ctx.measureText(String(text ?? '')).width);
+}
+
+function getMaxCriterionLabelWidth() {
+  let maxWidth = 0;
+
+  state.criteria.forEach((criterion) => {
+    maxWidth = Math.max(
+      maxWidth,
+      measureTextWidth(criterion.left),
+      measureTextWidth(criterion.right)
+    );
+  });
+
+  return maxWidth;
+}
+
+function getDynamicPlotPadding(size) {
+  const longestLabel = getMaxCriterionLabelWidth();
+  const rawPadding = Math.max(78, Math.ceil(longestLabel / 2) + 30);
+  const maxPadding = Math.max(58, Math.floor((size - 170) / 2));
+  return Math.min(rawPadding, maxPadding);
+}
+
+function getCriterionLabelBaseline(vectorY) {
+  if (Math.abs(vectorY) < 0.18) return 'middle';
+  return vectorY > 0 ? 'hanging' : 'auto';
+}
+
+function clampSvgTextIntoView(textNode, size, margin = 8) {
+  const box = textNode.getBBox();
+  let x = Number(textNode.getAttribute('x'));
+  let y = Number(textNode.getAttribute('y'));
+
+  if (box.x < margin) {
+    x += margin - box.x;
+  }
+  if (box.x + box.width > size - margin) {
+    x -= box.x + box.width - (size - margin);
+  }
+  if (box.y < margin) {
+    y += margin - box.y;
+  }
+  if (box.y + box.height > size - margin) {
+    y -= box.y + box.height - (size - margin);
+  }
+
+  textNode.setAttribute('x', x);
+  textNode.setAttribute('y', y);
+}
+
+function nudgeCriterionLabelPair(a, b, size) {
+  const boxA = a.getBBox();
+  const boxB = b.getBBox();
+  const overlapX = Math.min(boxA.x + boxA.width, boxB.x + boxB.width) - Math.max(boxA.x, boxB.x);
+  const overlapY = Math.min(boxA.y + boxA.height, boxB.y + boxB.height) - Math.max(boxA.y, boxB.y);
+
+  if (overlapX <= 0 || overlapY <= 0) return false;
+
+  const ax = Number(a.getAttribute('x'));
+  const ay = Number(a.getAttribute('y'));
+  const bx = Number(b.getAttribute('x'));
+  const by = Number(b.getAttribute('y'));
+  const horizontalPush = overlapX / 2 + 4;
+  const verticalPush = overlapY / 2 + 3;
+
+  // Schiebt entlang der dominanten Kollisionsrichtung auseinander
+  if (Math.abs(ax - bx) >= Math.abs(ay - by)) {
+    const direction = ax <= bx ? 1 : -1;
+    a.setAttribute('x', ax - horizontalPush * direction);
+    b.setAttribute('x', bx + horizontalPush * direction);
+  } else {
+    const direction = ay <= by ? 1 : -1;
+    a.setAttribute('y', ay - verticalPush * direction);
+    b.setAttribute('y', by + verticalPush * direction);
+  }
+
+  clampSvgTextIntoView(a, size, 8);
+  clampSvgTextIntoView(b, size, 8);
+  return true;
+}
+
+function resolveCriterionLabelCollisions(labelNodes, size) {
+  for (let pass = 0; pass < 32; pass += 1) {
+    let moved = false;
+
+    for (let i = 0; i < labelNodes.length; i += 1) {
+      for (let j = i + 1; j < labelNodes.length; j += 1) {
+        if (nudgeCriterionLabelPair(labelNodes[i], labelNodes[j], size)) {
+          moved = true;
+        }
+      }
+    }
+
+    labelNodes.forEach((node) => clampSvgTextIntoView(node, size, 8));
+
+    if (!moved) break;
+  }
+}
+
+
 function estimateTextBox(x, y, text, anchor = 'start') {
   const width = Math.max(22, text.length * 6.7);
   const height = 14;
@@ -547,6 +659,155 @@ function placeObjectLabels(points, size, padding) {
   });
 }
 
+function drawPlot() {
+  if (!plot || !plotWrapper || !plotSizeInput) return;
+
+  const size = Number(plotSizeInput.value);
+  plotWrapper.style.width = `${size}px`;
+  plotWrapper.style.height = `${size}px`;
+  plot.setAttribute('viewBox', `0 0 ${size} ${size}`);
+  plot.innerHTML = '';
+
+  // FIX 1: Padding nicht mehr hart auf 70, sondern an die längsten Kriterien anpassen.
+  const padding = getDynamicPlotPadding(size);
+  const inner = Math.max(120, size - padding * 2);
+  const center = size / 2;
+  const radius = inner / 2;
+  const criterionLabelRadius = radius + 18;
+  const criterionLabelNodes = [];
+
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('x', center - radius);
+  bg.setAttribute('y', center - radius);
+  bg.setAttribute('width', inner);
+  bg.setAttribute('height', inner);
+  bg.setAttribute('fill', '#fff');
+  bg.setAttribute('stroke', '#555');
+  plot.appendChild(bg);
+
+  const axisX = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  axisX.setAttribute('x1', center - radius);
+  axisX.setAttribute('y1', center);
+  axisX.setAttribute('x2', center + radius);
+  axisX.setAttribute('y2', center);
+  axisX.setAttribute('stroke', '#c9cdd4');
+  plot.appendChild(axisX);
+
+  const axisY = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  axisY.setAttribute('x1', center);
+  axisY.setAttribute('y1', center - radius);
+  axisY.setAttribute('x2', center);
+  axisY.setAttribute('y2', center + radius);
+  axisY.setAttribute('stroke', '#c9cdd4');
+  plot.appendChild(axisY);
+
+  state.criteria.forEach((criterion) => {
+    const main = polarToCartesian(criterion.angle, radius);
+    const opposite = polarToCartesian(criterion.angle + 180, radius);
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', center + opposite.x);
+    line.setAttribute('y1', center + opposite.y);
+    line.setAttribute('x2', center + main.x);
+    line.setAttribute('y2', center + main.y);
+    line.setAttribute('stroke', '#d9dde3');
+    plot.appendChild(line);
+
+    const leftTextPos = polarToCartesian(criterion.angle + 180, criterionLabelRadius);
+    const rightTextPos = polarToCartesian(criterion.angle, criterionLabelRadius);
+
+    const leftText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    leftText.setAttribute('x', center + leftTextPos.x);
+    leftText.setAttribute('y', center + leftTextPos.y);
+    leftText.setAttribute('font-size', '12');
+    leftText.setAttribute('font-family', 'Arial, sans-serif');
+    leftText.setAttribute('text-anchor', getAnchor(leftTextPos.x));
+    leftText.setAttribute(
+      'dominant-baseline',
+      getCriterionLabelBaseline(leftTextPos.y / Math.max(criterionLabelRadius, 1))
+    );
+    leftText.textContent = criterion.left;
+    plot.appendChild(leftText);
+    criterionLabelNodes.push(leftText);
+
+    const rightText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    rightText.setAttribute('x', center + rightTextPos.x);
+    rightText.setAttribute('y', center + rightTextPos.y);
+    rightText.setAttribute('font-size', '12');
+    rightText.setAttribute('font-family', 'Arial, sans-serif');
+    rightText.setAttribute('text-anchor', getAnchor(rightTextPos.x));
+    rightText.setAttribute(
+      'dominant-baseline',
+      getCriterionLabelBaseline(rightTextPos.y / Math.max(criterionLabelRadius, 1))
+    );
+    rightText.textContent = criterion.right;
+    plot.appendChild(rightText);
+    criterionLabelNodes.push(rightText);
+  });
+
+  // FIX 2: Nach dem Rendern echte SVG-Bounding-Boxes nutzen und Kollisionen entschärfen.
+  resolveCriterionLabelCollisions(criterionLabelNodes, size);
+
+  const points = state.objects.map((obj) => {
+    const coords = getObjectCoordinates(obj);
+    return {
+      name: obj.name,
+      x: center + coords.x * radius * 0.95,
+      y: center + coords.y * radius * 0.95
+    };
+  });
+
+  const labelPlacements = placeObjectLabels(points, size, center - radius);
+
+  points.forEach((point, index) => {
+    const pointNode = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    pointNode.setAttribute('x', point.x - 3);
+    pointNode.setAttribute('y', point.y - 3);
+    pointNode.setAttribute('width', 6);
+    pointNode.setAttribute('height', 6);
+    pointNode.setAttribute('fill', '#111');
+    plot.appendChild(pointNode);
+
+    const placement = labelPlacements[index];
+
+    if (placement.connector) {
+      const connector = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      connector.setAttribute('x1', point.x);
+      connector.setAttribute('y1', point.y);
+      connector.setAttribute('x2', placement.labelX);
+      connector.setAttribute('y2', placement.labelY - 4);
+      connector.setAttribute('stroke', '#b9bec7');
+      connector.setAttribute('stroke-width', '1');
+      plot.appendChild(connector);
+    }
+
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', placement.labelX);
+    label.setAttribute('y', placement.labelY);
+    label.setAttribute('font-size', '12');
+    label.setAttribute('font-family', 'Arial, sans-serif');
+    label.setAttribute('text-anchor', placement.anchor);
+    label.textContent = point.name;
+    plot.appendChild(label);
+  });
+
+  const dim1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  dim1.setAttribute('x', size - 18);
+  dim1.setAttribute('y', center + 12);
+  dim1.setAttribute('font-size', '12');
+  dim1.setAttribute('transform', `rotate(90 ${size - 18} ${center + 12})`);
+  dim1.textContent = 'Dim 1';
+  plot.appendChild(dim1);
+
+  const dim2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  dim2.setAttribute('x', center - 22);
+  dim2.setAttribute('y', size - 18);
+  dim2.setAttribute('font-size', '12');
+  dim2.textContent = 'Dim 2';
+  plot.appendChild(dim2);
+}
+
+/*
 function drawPlot() {
   if (!plot || !plotWrapper || !plotSizeInput) return;
 
@@ -675,6 +936,7 @@ function drawPlot() {
   dim2.textContent = 'Dim 2';
   plot.appendChild(dim2);
 }
+*/
 
 function exportState() {
   return {
