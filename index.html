@@ -3,17 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BiPlotteR – Prototyp 01</title>
+  <title>BiPlotteR – Prototyp 01 (Modular)</title>
+  <!--
+    Diese Version der Oberfläche lädt ihre Logik aus mehreren separaten
+    Skripten. Die Hilfsfunktionen befinden sich in utils.js, die
+    Statistik‑ und PCA‑Berechnungen in stats.js, das Zeichnen des
+    Biplots in plot.js und die Anwendungslogik sowie das DOM‑Binding
+    in app.js.  Zusätzlich bleibt auto-layout.js als eigenständiges
+    Modul erhalten.  Die Reihenfolge der Skripte ist wichtig, damit
+    die globalen Objekte (Utils, Stats, Plot) vor der Nutzung
+    verfügbar sind.
+  -->
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app">
     <header class="topbar">
       <div>
-        <h1>BiPlot Grafik generierung  Version 1.6 </h1>
-        <p>2D-BiPlot-Grafik mit exakter BiPlot-Berechnung für Forschungsstudien und Vergleichsanalysen per Matrixeingabe oder JSON-Upload. Im exakten BiPlot werden stark gewichtete Werte farblich hervorgehoben.</p>
+        <h1>BiPlot Grafik generierung — Version 1.6 (Modular)</h1>
+        <p>2D‑BiPlot‑Grafik mit exakter PCA‑Berechnung für Forschungsstudien
+          und Vergleichsanalysen per Matrixeingabe oder JSON‑Upload.</p>
       </div>
-
       <div class="topbar-actions">
         <button id="resetBtn" class="secondary">Demo laden</button>
         <button id="importBtn" class="secondary">JSON importieren</button>
@@ -21,124 +31,109 @@
         <button id="exportAnalysisBtn" class="secondary">Analyse exportieren</button>
         <input id="importFileInput" type="file" accept=".json,application/json" hidden />
       </div>
-
       <div id="messageBox" class="message" aria-live="polite"></div>
     </header>
-
     <main class="layout">
       <section class="panel controls">
-        <h2>1) Kriterien / Gegenpole</h2>
+        <h2>1) Kriterien / Gegenpole</h2>
         <p class="hint">
-          Jede Zeile beschreibt ein Gegensatzpaar. Mit dem Winkel-Slider legst du die Richtung im Plot fest.
-          Der Gegenpol liegt automatisch auf der gegenüberliegenden Seite.
+          Jede Zeile beschreibt ein Gegensatzpaar. Mit dem Winkel‑Slider legst
+          du die Richtung im Plot fest. Der Gegenpol liegt automatisch auf
+          der gegenüberliegenden Seite.
         </p>
         <div id="criteriaList" class="criteria-list"></div>
         <div class="row-actions">
-          <button id="addCriterionBtn" class="secondary">+ Kriterium</button>
+          <button id="addCriterionBtn" class="secondary">+ Kriterium</button>
         </div>
-
-        <h2>2) Berufe / Objekte</h2>
+        <h2>2) Berufe / Objekte</h2>
         <p class="hint">
-          Wertebereich aktuell: 1 bis 6. Später kann man das auch automatisch aus Daten importieren.
+          Wertebereich aktuell: 1 bis 6. Später kann man das auch automatisch
+          aus Daten importieren.
         </p>
         <div id="objectsControls" class="objects-controls"></div>
         <div class="row-actions">
-          <button id="addObjectBtn" class="secondary">+ Objekt</button>
+          <button id="addObjectBtn" class="secondary">+ Objekt</button>
         </div>
-
         <h2>3) Matrix</h2>
         <div class="table-wrap">
           <table id="matrixTable"></table>
         </div>
       </section>
-
       <section class="panel plot-panel">
         <div class="plot-header">
           <div>
-            <h2>4) 2D-Biplot</h2>
-            <p class="hint">
-              MVP-Rechenlogik: Die Objektposition ergibt sich aus den Kriteriumswerten und den manuell gesetzten Richtungen.
-            </p>
+            <h2>4) 2D‑Biplot</h2>
+            <p class="hint">Die Objektposition ergibt sich aus den
+              Kriteriumswerten und den manuell gesetzten Richtungen. Im exakten
+              Modus werden die Koordinaten direkt aus der Matrix per PCA
+              berechnet.</p>
           </div>
-
-<div id="autoLayoutNotice" class="auto-layout-notice" aria-live="polite">
-  <strong>Hinweis zur Auto-Anordnung</strong>
-  <span>
-    Berufe/Objekte dürfen ähnlich sein. Kriterien sollten sich jedoch möglichst unterscheiden.
-    Zu viele ähnliche Kriterien verfälschen die Projektion und gewichten einzelne Richtungen zu stark.
-  </span>
-</div>
-
-        <div class="plot-options">
-  <label>
-    Plot-Größe
-    <input id="plotSizeInput" type="range" min="700" max="1400" step="10" value="1400" />
-  </label>
-
-  <label class="checkbox-label">
-    <input id="avoidOverlapInput" type="checkbox" checked />
-    Label-Overlap entschärfen
-  </label>
-
-  <button id="autoArrangeBtn" class="secondary" type="button">
-    Kriterien automatisch anordnen
-  </button>
-
-  <button id="exactBiplotBtn" type="button">Exakten Biplot erstellen</button>
-<button id="freeModeBtn" type="button">Freien Modus aktivieren</button>
-</div>
+          <div id="autoLayoutNotice" class="auto-layout-notice" aria-live="polite">
+            <strong>Hinweis zur Auto‑Anordnung</strong>
+            <span>Berufe/Objekte dürfen ähnlich sein. Kriterien sollten sich jedoch
+              möglichst unterscheiden. Zu viele ähnliche Kriterien verfälschen
+              die Projektion und gewichten einzelne Richtungen zu stark.</span>
+          </div>
+          <div class="plot-options">
+            <label>
+              Plot‑Größe
+              <input id="plotSizeInput" type="range" min="700" max="1400" step="10" value="1400" />
+            </label>
+            <label class="checkbox-label">
+              <input id="avoidOverlapInput" type="checkbox" checked />
+              Label‑Overlap entschärfen
+            </label>
+            <label class="checkbox-label">
+              <input id="toggleNegativeRed" type="checkbox" checked />
+              Negative Linien rot markieren
+            </label>
+            <button id="autoArrangeBtn" class="secondary" type="button">
+              Kriterien automatisch anordnen
+            </button>
+            <button id="exactBiplotBtn" type="button">Exakten Biplot erstellen</button>
+            <button id="freeModeBtn" type="button">Freien Modus aktivieren</button>
+          </div>
         </div>
-
         <div id="plotWrapper" class="plot-wrapper" style="width: 650px; height: 650px;">
-          <svg id="plot" viewBox="0 0 650 650" aria-label="2D-Biplot"></svg>
+          <svg id="plot" viewBox="0 0 650 650" aria-label="2D‑Biplot"></svg>
         </div>
       </section>
     </main>
-
     <section class="panel">
       <h2>Analyse / Ergebnisse</h2>
-
       <h3>Deskriptive Statistik</h3>
       <div id="statsTableWrap"></div>
-
       <h3>Korrelationen</h3>
       <div id="correlationTableWrap"></div>
-
       <h3>PCA Zusammenfassung</h3>
       <div id="pcaSummary"></div>
-
-      <h3>PCA Objekt-Koordinaten</h3>
+      <h3>PCA Objekt‑Koordinaten</h3>
       <div id="pcaObjectsWrap"></div>
-
-      <h3>PCA Kriterium-Koordinaten</h3>
+      <h3>PCA Kriterium‑Koordinaten</h3>
       <div id="pcaVariablesWrap"></div>
     </section>
   </div>
-
+  <!-- Templates -->
   <template id="criterionTemplate">
     <div class="criterion-card">
       <div class="criterion-header">
         <strong class="criterion-title">Kriterium</strong>
         <button class="danger remove-criterion-btn" type="button">Entfernen</button>
       </div>
-
       <div class="criterion-grid">
         <label>
           Linker Pol
           <input class="left-label-input" type="text" />
         </label>
-
         <label>
           Rechter Pol
           <input class="right-label-input" type="text" />
         </label>
-
         <label>
           Winkel
           <input class="angle-input" type="range" min="0" max="359" step="1" />
           <span class="angle-value"></span>
         </label>
-
         <label>
           Stärke
           <input class="weight-input" type="range" min="0.2" max="2.5" step="0.1" />
@@ -147,8 +142,12 @@
       </div>
     </div>
   </template>
-  <script src="exact-biplot.js"></script>
+  <!-- Scripts: Reihenfolge beachten! -->
   <script src="auto-layout.js"></script>
-  <script src="script.js"></script>
+  <script src="exact-biplot.js"></script>
+  <script src="utils.js"></script>
+  <script src="stats.js"></script>
+  <script src="plot.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
