@@ -23,8 +23,9 @@
     settings: {
       avoidOverlap: true,
       // new: whether to draw the negative half of each criterion
-      // axis in red.  Enabled by default.
-      markNegativeLoadingsRed: true
+      // axis in red.  Disabled by default so that all axes start
+      // with a uniform appearance until the user opts in.
+      markNegativeLoadingsRed: false
     },
     plotMode: 'manual', // 'manual' | 'exact'
     exactBiplot: null
@@ -54,7 +55,7 @@
     ],
     settings: {
       avoidOverlap: true,
-      markNegativeLoadingsRed: true
+      markNegativeLoadingsRed: false
     }
   };
 
@@ -122,7 +123,9 @@
       : [];
     const settings = {
       avoidOverlap: Boolean(source?.settings?.avoidOverlap ?? true),
-      markNegativeLoadingsRed: Boolean(source?.settings?.markNegativeLoadingsRed ?? true)
+      // default to false when missing to prevent unsolicited red
+      // highlighting of negative axes
+      markNegativeLoadingsRed: Boolean(source?.settings?.markNegativeLoadingsRed ?? false)
     };
     return { criteria, objects, settings };
   }

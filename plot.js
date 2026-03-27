@@ -173,26 +173,35 @@
     state.criteria.forEach((criterion) => {
       const main = Utils.polarToCartesian(criterion.angle, radius);
       const opposite = Utils.polarToCartesian(criterion.angle + 180, radius);
-      // Negative half line (from centre to opposite).  When the
-      // markNegativeLoadingsRed toggle is active the negative side is
-      // coloured red, otherwise it uses the same base colour as the
-      // positive side.  We default to a dark tone (#111) so that both
-      // halves appear black rather than grey.
+      // Negative half line (from centre to opposite).  Base colour is
+      // a semi-transparent black.  When markNegativeLoadingsRed is
+      // enabled the negative side is tinted red but still retains
+      // slight transparency for subtlety.  Without the toggle both
+      // halves appear the same base colour.
       const negLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       negLine.setAttribute('x1', center);
       negLine.setAttribute('y1', center);
       negLine.setAttribute('x2', center + opposite.x);
       negLine.setAttribute('y2', center + opposite.y);
-      negLine.setAttribute('stroke', state.settings.markNegativeLoadingsRed ? '#d11a2a' : '#111');
+      if (state.settings.markNegativeLoadingsRed) {
+        negLine.setAttribute('stroke', '#d11a2a');
+        // slightly transparent red
+        negLine.setAttribute('stroke-opacity', '0.7');
+      } else {
+        negLine.setAttribute('stroke', '#111');
+        // semi-transparent black for better contrast on white
+        negLine.setAttribute('stroke-opacity', '0.5');
+      }
       plot.appendChild(negLine);
-      // Positive half line (from centre to main).  The positive side
-      // always uses the base colour and never turns red.
+      // Positive half line (from centre to main).  Always uses the base
+      // colour (semi-transparent black) and never turns red.
       const posLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       posLine.setAttribute('x1', center);
       posLine.setAttribute('y1', center);
       posLine.setAttribute('x2', center + main.x);
       posLine.setAttribute('y2', center + main.y);
       posLine.setAttribute('stroke', '#111');
+      posLine.setAttribute('stroke-opacity', '0.5');
       plot.appendChild(posLine);
       // Left and right label positions (beyond the ends of the axis)
       const leftTextPos = Utils.polarToCartesian(criterion.angle + 180, criterionLabelRadius);
@@ -328,33 +337,44 @@
     criterionCoords.forEach((criterion) => {
       const end = Plot.exactCoordToSvg(criterion.x, criterion.y, bounds, size, padding);
       const start = Plot.exactCoordToSvg(-criterion.x, -criterion.y, bounds, size, padding);
-      // Negative half: line from start to origin.  When the
-      // markNegativeLoadingsRed toggle is active the negative side
-      // becomes red, otherwise it uses the same base colour as the
-      // positive side.
+      // Negative half: line from start to origin.  Base colour is
+      // semi-transparent black.  When markNegativeLoadingsRed is
+      // enabled the negative side turns red with slight transparency.
       const neg = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       neg.setAttribute('x1', start.x);
       neg.setAttribute('y1', start.y);
       neg.setAttribute('x2', origin.x);
       neg.setAttribute('y2', origin.y);
-      neg.setAttribute('stroke', state.settings.markNegativeLoadingsRed ? '#d11a2a' : '#111');
+      if (state.settings.markNegativeLoadingsRed) {
+        neg.setAttribute('stroke', '#d11a2a');
+        neg.setAttribute('stroke-opacity', '0.7');
+      } else {
+        neg.setAttribute('stroke', '#111');
+        neg.setAttribute('stroke-opacity', '0.5');
+      }
       plot.appendChild(neg);
       // Positive half: line from origin to end.  Always uses the base
-      // colour and never turns red.
+      // colour (semi-transparent black) and never turns red.
       const pos = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       pos.setAttribute('x1', origin.x);
       pos.setAttribute('y1', origin.y);
       pos.setAttribute('x2', end.x);
       pos.setAttribute('y2', end.y);
       pos.setAttribute('stroke', '#111');
+      pos.setAttribute('stroke-opacity', '0.5');
       plot.appendChild(pos);
-      // Arrow for the positive direction (kept red/dark as in original)
+      // Arrow for the positive direction.  Use the same base colour
+      // with slightly higher opacity to distinguish the vector
+      // direction without adding colour when the toggle is off.  When
+      // markNegativeLoadingsRed is enabled we still avoid red for the
+      // arrow to maintain consistent appearance.
       const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       arrow.setAttribute('x1', origin.x);
       arrow.setAttribute('y1', origin.y);
       arrow.setAttribute('x2', end.x);
       arrow.setAttribute('y2', end.y);
-      arrow.setAttribute('stroke', '#b33a3a');
+      arrow.setAttribute('stroke', '#111');
+      arrow.setAttribute('stroke-opacity', '0.7');
       arrow.setAttribute('stroke-width', '2');
       plot.appendChild(arrow);
       // Labels
