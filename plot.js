@@ -335,8 +335,46 @@
     plot.appendChild(axisY);
     const criterionLabelNodes = [];
     criterionCoords.forEach((criterion) => {
-      const end = Plot.exactCoordToSvg(criterion.x, criterion.y, bounds, size, padding);
-      const start = Plot.exactCoordToSvg(-criterion.x, -criterion.y, bounds, size, padding);
+      // Extend the criterion vector so that the positive and negative axes
+      // reach the edges of the bounding box.  We compute where a ray
+      // originating at (0,0) in the direction of the criterion vector
+      // intersects the rectangular bounds.  This produces an equal
+      // length for all axes in the exact plot, giving a similar look
+      // to the manual plot where each criterion axis spans the full
+      // plotting area.  See: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Finding_the_point_of_intersection
+      const rx = criterion.x;
+      const ry = criterion.y;
+      // Compute the parametric distances for the positive direction
+      const tPosCandidates = [];
+      if (rx !== 0) {
+        const tpx = rx > 0 ? bounds.maxX / rx : bounds.minX / rx;
+        tPosCandidates.push(tpx);
+      }
+      if (ry !== 0) {
+        const tpy = ry > 0 ? bounds.maxY / ry : bounds.minY / ry;
+        tPosCandidates.push(tpy);
+      }
+      const tPos = tPosCandidates.length > 0 ? Math.min(...tPosCandidates.filter((val) => Number.isFinite(val) && val >= 0)) : 0;
+      const posX = rx * tPos;
+      const posY = ry * tPos;
+      // Negative direction
+      const nrx = -rx;
+      const nry = -ry;
+      const tNegCandidates = [];
+      if (nrx !== 0) {
+        const tnx = nrx > 0 ? bounds.maxX / nrx : bounds.minX / nrx;
+        tNegCandidates.push(tnx);
+      }
+      if (nry !== 0) {
+        const tny = nry > 0 ? bounds.maxY / nry : bounds.minY / nry;
+        tNegCandidates.push(tny);
+      }
+      const tNeg = tNegCandidates.length > 0 ? Math.min(...tNegCandidates.filter((val) => Number.isFinite(val) && val >= 0)) : 0;
+      const negX = nrx * tNeg;
+      const negY = nry * tNeg;
+      // Convert extended endpoints to SVG coordinates
+      const end = Plot.exactCoordToSvg(posX, posY, bounds, size, padding);
+      const start = Plot.exactCoordToSvg(negX, negY, bounds, size, padding);
       // Negative half: line from start to origin.  Base colour is
       // semi-transparent black.  When markNegativeLoadingsRed is
       // enabled the negative side turns red with slight transparency.
@@ -363,23 +401,12 @@
       pos.setAttribute('stroke', '#111');
       pos.setAttribute('stroke-opacity', '0.5');
       plot.appendChild(pos);
-      // Arrow for the positive direction.  Use the same base colour
-      // with slightly higher opacity to distinguish the vector
-      // direction without adding colour when the toggle is off.  When
-      // markNegativeLoadingsRed is enabled we still avoid red for the
-      // arrow to maintain consistent appearance.
-      const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      arrow.setAttribute('x1', origin.x);
-      arrow.setAttribute('y1', origin.y);
-      arrow.setAttribute('x2', end.x);
-      arrow.setAttribute('y2', end.y);
-      arrow.setAttribute('stroke', '#111');
-      arrow.setAttribute('stroke-opacity', '0.7');
-      arrow.setAttribute('stroke-width', '2');
-      plot.appendChild(arrow);
       // Labels
-      const leftLabelPos = Plot.exactCoordToSvg(-criterion.x * 1.08, -criterion.y * 1.08, bounds, size, padding);
-      const rightLabelPos = Plot.exactCoordToSvg(criterion.x * 1.08, criterion.y * 1.08, bounds, size, padding);
+      // Position labels slightly beyond the extended vector ends.  Use the
+      // extended coordinates computed above rather than the raw PCA
+      // loadings so the labels align with the longer axes.
+      const leftLabelPos = Plot.exactCoordToSvg(negX * 1.08, negY * 1.08, bounds, size, padding);
+      const rightLabelPos = Plot.exactCoordToSvg(posX * 1.08, posY * 1.08, bounds, size, padding);
       const leftText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       leftText.setAttribute('x', leftLabelPos.x);
       leftText.setAttribute('y', leftLabelPos.y);
