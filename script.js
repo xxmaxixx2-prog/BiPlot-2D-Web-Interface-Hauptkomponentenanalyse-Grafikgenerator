@@ -3,7 +3,9 @@ const state = {
   objects: [],
   settings: {
     avoidOverlap: true
-  }
+  },
+  plotMode: 'manual', // 'manual' | 'exact'
+  exactBiplot: null
 };
 
 const demoState = {
@@ -39,6 +41,8 @@ const avoidOverlapInput = document.getElementById('avoidOverlapInput');
 const importFileInput = document.getElementById('importFileInput');
 const autoArrangeBtn = document.getElementById('autoArrangeBtn');
 const autoLayoutNotice = document.getElementById('autoLayoutNotice');
+const exactBiplotBtn = document.getElementById('exactBiplotBtn');
+const freeModeBtn = document.getElementById('freeModeBtn');
 
 function cloneDemo() {
   return JSON.parse(JSON.stringify(demoState));
@@ -106,6 +110,9 @@ function loadState(newState) {
   state.criteria = safeState.criteria;
   state.objects = safeState.objects;
   state.settings = { ...state.settings, ...safeState.settings };
+  state.plotMode = 'manual';
+  state.exactBiplot = null;
+
   ensureMatrixConsistency();
 
   if (avoidOverlapInput) {
@@ -133,6 +140,13 @@ function ensureMatrixConsistency() {
   });
 }
 
+function invalidateExactMode() {
+  state.exactBiplot = null;
+  if (state.plotMode === 'exact') {
+    state.plotMode = 'manual';
+  }
+}
+
 function showMessage(text, type = 'success') {
   if (!messageBox) return;
 
@@ -148,6 +162,25 @@ function showMessage(text, type = 'success') {
 
 function renderAutoLayoutNotice(result = null) {
   if (!autoLayoutNotice) return;
+
+  if (state.plotMode === 'exact') {
+    const exact = state.exactBiplot;
+    const explained =
+      exact?.pca?.explainedVariance?.length >= 2
+        ? Math.round((exact.pca.explainedVariance[0] + exact.pca.explainedVariance[1]) * 100)
+        : null;
+
+    autoLayoutNotice.className = 'auto-layout-notice is-ok';
+    autoLayoutNotice.innerHTML = `
+      <strong>Exakter Biplot aktiv</strong>
+      <span>
+        Die Grafik wird jetzt direkt aus der Matrix per PCA berechnet.
+        Winkel und freie Anordnung steuern den Plot in diesem Modus nicht.
+        ${explained !== null ? ` PC1/PC2 erklären hier ungefähr ${explained}% der Gesamtstruktur.` : ''}
+      </span>
+    `;
+    return;
+  }
 
   if (!result) {
     autoLayoutNotice.className = 'auto-layout-notice';
@@ -203,6 +236,11 @@ function renderAll() {
 }
 
 function handleAutoArrangeClick() {
+  if (state.plotMode === 'exact') {
+    showMessage('Auto-Anordnung ist im exakten Biplot-Modus nicht relevant. Bitte erst freien Modus aktivieren.', 'error');
+    return;
+  }
+
   if (!window.BiPlotteRAutoLayout || typeof window.BiPlotteRAutoLayout.analyze !== 'function') {
     showMessage('auto-layout.js wurde nicht gefunden oder nicht korrekt geladen.', 'error');
     return;
@@ -263,6 +301,7 @@ function renderCriteriaControls() {
 
     leftInput.addEventListener('input', (event) => {
       criterion.left = event.target.value;
+      invalidateExactMode();
       renderMatrix();
       drawPlot();
       renderAnalysis();
@@ -271,6 +310,7 @@ function renderCriteriaControls() {
 
     rightInput.addEventListener('input', (event) => {
       criterion.right = event.target.value;
+      invalidateExactMode();
       renderMatrix();
       drawPlot();
       renderAnalysis();
@@ -299,6 +339,7 @@ function renderCriteriaControls() {
         state.criteria.push({ left: 'neuer Pol A', right: 'neuer Pol B', angle: 0, weight: 1 });
       }
 
+      invalidateExactMode();
       renderAll();
     });
 
@@ -322,6 +363,7 @@ function renderObjectControls() {
     input.value = obj.name;
     input.addEventListener('input', (event) => {
       obj.name = event.target.value;
+      invalidateExactMode();
       renderMatrix();
       drawPlot();
       renderAnalysis();
@@ -335,6 +377,7 @@ function renderObjectControls() {
     removeBtn.textContent = 'Entfernen';
     removeBtn.addEventListener('click', () => {
       state.objects.splice(index, 1);
+      invalidateExactMode();
       renderAll();
     });
 
@@ -376,6 +419,7 @@ function renderMatrix() {
     nameInput.className = 'matrix-name-input';
     nameInput.addEventListener('input', (event) => {
       obj.name = event.target.value;
+      invalidateExactMode();
       renderObjectControls();
       drawPlot();
       renderAnalysis();
@@ -396,6 +440,7 @@ function renderMatrix() {
       input.addEventListener('input', (event) => {
         obj.values[criterionIndex] = Math.round(clamp(event.target.value, 1, 6, 3));
         event.target.value = obj.values[criterionIndex];
+        invalidateExactMode();
         drawPlot();
         renderAnalysis();
         renderAutoLayoutNotice();
@@ -448,9 +493,6 @@ function getAnchor(x) {
 
 /* =========================
    GRAFIK-FIX: Text messen + Kriterien-Labels sicher platzieren
-   - dynamischer Rand statt starrem Padding
-   - Labels innerhalb des SVG halten
-   - Kollisionen zwischen Kriterien-Labels entschärfen
 ========================= */
 
 function measureTextWidth(text, font = '12px Arial') {
@@ -523,7 +565,6 @@ function nudgeCriterionLabelPair(a, b, size) {
   const horizontalPush = overlapX / 2 + 4;
   const verticalPush = overlapY / 2 + 3;
 
-  // Schiebt entlang der dominanten Kollisionsrichtung auseinander
   if (Math.abs(ax - bx) >= Math.abs(ay - by)) {
     const direction = ax <= bx ? 1 : -1;
     a.setAttribute('x', ax - horizontalPush * direction);
@@ -556,7 +597,6 @@ function resolveCriterionLabelCollisions(labelNodes, size) {
     if (!moved) break;
   }
 }
-
 
 function estimateTextBox(x, y, text, anchor = 'start') {
   const width = Math.max(22, text.length * 6.7);
@@ -659,322 +699,8 @@ function placeObjectLabels(points, size, padding) {
   });
 }
 
-function drawPlot() {
-  if (!plot || !plotWrapper || !plotSizeInput) return;
-
-  const size = Number(plotSizeInput.value);
-  plotWrapper.style.width = `${size}px`;
-  plotWrapper.style.height = `${size}px`;
-  plot.setAttribute('viewBox', `0 0 ${size} ${size}`);
-  plot.innerHTML = '';
-
-  // FIX 1: Padding nicht mehr hart auf 70, sondern an die längsten Kriterien anpassen.
-  const padding = getDynamicPlotPadding(size);
-  const inner = Math.max(120, size - padding * 2);
-  const center = size / 2;
-  const radius = inner / 2;
-  const criterionLabelRadius = radius + 18;
-  const criterionLabelNodes = [];
-
-  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  bg.setAttribute('x', center - radius);
-  bg.setAttribute('y', center - radius);
-  bg.setAttribute('width', inner);
-  bg.setAttribute('height', inner);
-  bg.setAttribute('fill', '#fff');
-  bg.setAttribute('stroke', '#555');
-  plot.appendChild(bg);
-
-  const axisX = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  axisX.setAttribute('x1', center - radius);
-  axisX.setAttribute('y1', center);
-  axisX.setAttribute('x2', center + radius);
-  axisX.setAttribute('y2', center);
-  axisX.setAttribute('stroke', '#c9cdd4');
-  plot.appendChild(axisX);
-
-  const axisY = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  axisY.setAttribute('x1', center);
-  axisY.setAttribute('y1', center - radius);
-  axisY.setAttribute('x2', center);
-  axisY.setAttribute('y2', center + radius);
-  axisY.setAttribute('stroke', '#c9cdd4');
-  plot.appendChild(axisY);
-
-  state.criteria.forEach((criterion) => {
-    const main = polarToCartesian(criterion.angle, radius);
-    const opposite = polarToCartesian(criterion.angle + 180, radius);
-
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', center + opposite.x);
-    line.setAttribute('y1', center + opposite.y);
-    line.setAttribute('x2', center + main.x);
-    line.setAttribute('y2', center + main.y);
-    line.setAttribute('stroke', '#d9dde3');
-    plot.appendChild(line);
-
-    const leftTextPos = polarToCartesian(criterion.angle + 180, criterionLabelRadius);
-    const rightTextPos = polarToCartesian(criterion.angle, criterionLabelRadius);
-
-    const leftText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    leftText.setAttribute('x', center + leftTextPos.x);
-    leftText.setAttribute('y', center + leftTextPos.y);
-    leftText.setAttribute('font-size', '12');
-    leftText.setAttribute('font-family', 'Arial, sans-serif');
-    leftText.setAttribute('text-anchor', getAnchor(leftTextPos.x));
-    leftText.setAttribute(
-      'dominant-baseline',
-      getCriterionLabelBaseline(leftTextPos.y / Math.max(criterionLabelRadius, 1))
-    );
-    leftText.textContent = criterion.left;
-    plot.appendChild(leftText);
-    criterionLabelNodes.push(leftText);
-
-    const rightText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    rightText.setAttribute('x', center + rightTextPos.x);
-    rightText.setAttribute('y', center + rightTextPos.y);
-    rightText.setAttribute('font-size', '12');
-    rightText.setAttribute('font-family', 'Arial, sans-serif');
-    rightText.setAttribute('text-anchor', getAnchor(rightTextPos.x));
-    rightText.setAttribute(
-      'dominant-baseline',
-      getCriterionLabelBaseline(rightTextPos.y / Math.max(criterionLabelRadius, 1))
-    );
-    rightText.textContent = criterion.right;
-    plot.appendChild(rightText);
-    criterionLabelNodes.push(rightText);
-  });
-
-  // FIX 2: Nach dem Rendern echte SVG-Bounding-Boxes nutzen und Kollisionen entschärfen.
-  resolveCriterionLabelCollisions(criterionLabelNodes, size);
-
-  const points = state.objects.map((obj) => {
-    const coords = getObjectCoordinates(obj);
-    return {
-      name: obj.name,
-      x: center + coords.x * radius * 0.95,
-      y: center + coords.y * radius * 0.95
-    };
-  });
-
-  const labelPlacements = placeObjectLabels(points, size, center - radius);
-
-  points.forEach((point, index) => {
-    const pointNode = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    pointNode.setAttribute('x', point.x - 3);
-    pointNode.setAttribute('y', point.y - 3);
-    pointNode.setAttribute('width', 6);
-    pointNode.setAttribute('height', 6);
-    pointNode.setAttribute('fill', '#111');
-    plot.appendChild(pointNode);
-
-    const placement = labelPlacements[index];
-
-    if (placement.connector) {
-      const connector = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      connector.setAttribute('x1', point.x);
-      connector.setAttribute('y1', point.y);
-      connector.setAttribute('x2', placement.labelX);
-      connector.setAttribute('y2', placement.labelY - 4);
-      connector.setAttribute('stroke', '#b9bec7');
-      connector.setAttribute('stroke-width', '1');
-      plot.appendChild(connector);
-    }
-
-    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    label.setAttribute('x', placement.labelX);
-    label.setAttribute('y', placement.labelY);
-    label.setAttribute('font-size', '12');
-    label.setAttribute('font-family', 'Arial, sans-serif');
-    label.setAttribute('text-anchor', placement.anchor);
-    label.textContent = point.name;
-    plot.appendChild(label);
-  });
-
-  const dim1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  dim1.setAttribute('x', size - 18);
-  dim1.setAttribute('y', center + 12);
-  dim1.setAttribute('font-size', '12');
-  dim1.setAttribute('transform', `rotate(90 ${size - 18} ${center + 12})`);
-  dim1.textContent = 'Dim 1';
-  plot.appendChild(dim1);
-
-  const dim2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  dim2.setAttribute('x', center - 22);
-  dim2.setAttribute('y', size - 18);
-  dim2.setAttribute('font-size', '12');
-  dim2.textContent = 'Dim 2';
-  plot.appendChild(dim2);
-}
-
-/*
-function drawPlot() {
-  if (!plot || !plotWrapper || !plotSizeInput) return;
-
-  const size = Number(plotSizeInput.value);
-  plotWrapper.style.width = `${size}px`;
-  plotWrapper.style.height = `${size}px`;
-  plot.setAttribute('viewBox', `0 0 ${size} ${size}`);
-  plot.innerHTML = '';
-
-  const padding = 70;
-  const inner = size - padding * 2;
-  const center = size / 2;
-  const radius = inner / 2;
-
-  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  bg.setAttribute('x', padding);
-  bg.setAttribute('y', padding);
-  bg.setAttribute('width', inner);
-  bg.setAttribute('height', inner);
-  bg.setAttribute('fill', '#fff');
-  bg.setAttribute('stroke', '#555');
-  plot.appendChild(bg);
-
-  const axisX = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  axisX.setAttribute('x1', padding);
-  axisX.setAttribute('y1', center);
-  axisX.setAttribute('x2', size - padding);
-  axisX.setAttribute('y2', center);
-  axisX.setAttribute('stroke', '#c9cdd4');
-  plot.appendChild(axisX);
-
-  const axisY = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  axisY.setAttribute('x1', center);
-  axisY.setAttribute('y1', padding);
-  axisY.setAttribute('x2', center);
-  axisY.setAttribute('y2', size - padding);
-  axisY.setAttribute('stroke', '#c9cdd4');
-  plot.appendChild(axisY);
-
-  state.criteria.forEach((criterion) => {
-    const main = polarToCartesian(criterion.angle, radius);
-    const opposite = polarToCartesian(criterion.angle + 180, radius);
-
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', center + opposite.x);
-    line.setAttribute('y1', center + opposite.y);
-    line.setAttribute('x2', center + main.x);
-    line.setAttribute('y2', center + main.y);
-    line.setAttribute('stroke', '#d9dde3');
-    plot.appendChild(line);
-
-    const leftTextPos = polarToCartesian(criterion.angle + 180, radius + 18);
-    const rightTextPos = polarToCartesian(criterion.angle, radius + 18);
-
-    const leftText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    leftText.setAttribute('x', center + leftTextPos.x);
-    leftText.setAttribute('y', center + leftTextPos.y);
-    leftText.setAttribute('font-size', '12');
-    leftText.setAttribute('text-anchor', getAnchor(leftTextPos.x));
-    leftText.textContent = criterion.left;
-    plot.appendChild(leftText);
-
-    const rightText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    rightText.setAttribute('x', center + rightTextPos.x);
-    rightText.setAttribute('y', center + rightTextPos.y);
-    rightText.setAttribute('font-size', '12');
-    rightText.setAttribute('text-anchor', getAnchor(rightTextPos.x));
-    rightText.textContent = criterion.right;
-    plot.appendChild(rightText);
-  });
-
-  const points = state.objects.map((obj) => {
-    const coords = getObjectCoordinates(obj);
-    return {
-      name: obj.name,
-      x: center + coords.x * radius * 0.95,
-      y: center + coords.y * radius * 0.95
-    };
-  });
-
-  const labelPlacements = placeObjectLabels(points, size, padding);
-
-  points.forEach((point, index) => {
-    const pointNode = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    pointNode.setAttribute('x', point.x - 3);
-    pointNode.setAttribute('y', point.y - 3);
-    pointNode.setAttribute('width', 6);
-    pointNode.setAttribute('height', 6);
-    pointNode.setAttribute('fill', '#111');
-    plot.appendChild(pointNode);
-
-    const placement = labelPlacements[index];
-
-    if (placement.connector) {
-      const connector = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      connector.setAttribute('x1', point.x);
-      connector.setAttribute('y1', point.y);
-      connector.setAttribute('x2', placement.labelX);
-      connector.setAttribute('y2', placement.labelY - 4);
-      connector.setAttribute('stroke', '#b9bec7');
-      connector.setAttribute('stroke-width', '1');
-      plot.appendChild(connector);
-    }
-
-    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    label.setAttribute('x', placement.labelX);
-    label.setAttribute('y', placement.labelY);
-    label.setAttribute('font-size', '12');
-    label.setAttribute('text-anchor', placement.anchor);
-    label.textContent = point.name;
-    plot.appendChild(label);
-  });
-
-  const dim1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  dim1.setAttribute('x', size - 18);
-  dim1.setAttribute('y', center + 12);
-  dim1.setAttribute('font-size', '12');
-  dim1.setAttribute('transform', `rotate(90 ${size - 18} ${center + 12})`);
-  dim1.textContent = 'Dim 1';
-  plot.appendChild(dim1);
-
-  const dim2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  dim2.setAttribute('x', center - 22);
-  dim2.setAttribute('y', size - 18);
-  dim2.setAttribute('font-size', '12');
-  dim2.textContent = 'Dim 2';
-  plot.appendChild(dim2);
-}
-*/
-
-function exportState() {
-  return {
-    meta: {
-      app: 'BiPlotteR – Prototyp 01',
-      version: 2,
-      exportedAt: new Date().toISOString()
-    },
-    state: {
-      criteria: state.criteria,
-      objects: state.objects,
-      settings: state.settings
-    }
-  };
-}
-
-function handleImportFile(file) {
-  const reader = new FileReader();
-
-  reader.onload = () => {
-    try {
-      const parsed = JSON.parse(reader.result);
-      loadState(parsed);
-      showMessage(`JSON erfolgreich geladen: ${file.name}`);
-    } catch (error) {
-      showMessage(`Import fehlgeschlagen: ${error.message}`, 'error');
-    }
-  };
-
-  reader.onerror = () => {
-    showMessage('Datei konnte nicht gelesen werden.', 'error');
-  };
-
-  reader.readAsText(file, 'utf-8');
-}
-
 /* =========================
-   ANALYSE / STATISTIK / PCA
+   MATRIX / STATISTIK / PCA
 ========================= */
 
 function getCriterionNames() {
@@ -1098,10 +824,17 @@ function standardizeMatrix(matrix) {
     const column = getColumn(matrix, columnIndex);
     means.push(mean(column));
     const sd = sampleSD(column);
-    sds.push(sd === 0 ? 1 : sd);
+    sds.push(sd);
   }
 
-  const standardized = matrix.map((row) => row.map((value, j) => (value - means[j]) / sds[j]));
+  const standardized = matrix.map((row) =>
+    row.map((value, j) => {
+      const sd = sds[j];
+      if (!Number.isFinite(sd) || sd === 0) return 0;
+      return (value - means[j]) / sd;
+    })
+  );
+
   return { standardized, means, sds };
 }
 
@@ -1113,13 +846,20 @@ function transpose(matrix) {
 function multiplyMatrices(a, b) {
   const rowsA = a.length;
   const colsA = a[0].length;
+  const rowsB = b.length;
   const colsB = b[0].length;
+
+  if (colsA !== rowsB) {
+    throw new Error('Matrixdimensionen passen nicht zusammen.');
+  }
+
   const result = Array.from({ length: rowsA }, () => Array(colsB).fill(0));
 
   for (let i = 0; i < rowsA; i += 1) {
-    for (let j = 0; j < colsB; j += 1) {
-      for (let k = 0; k < colsA; k += 1) {
-        result[i][j] += a[i][k] * b[k][j];
+    for (let k = 0; k < colsA; k += 1) {
+      const aik = a[i][k];
+      for (let j = 0; j < colsB; j += 1) {
+        result[i][j] += aik * b[k][j];
       }
     }
   }
@@ -1127,7 +867,19 @@ function multiplyMatrices(a, b) {
   return result;
 }
 
-function covarianceMatrixFromStandardized(standardized) {
+function identityMatrix(n) {
+  const result = Array.from({ length: n }, () => Array(n).fill(0));
+  for (let i = 0; i < n; i += 1) {
+    result[i][i] = 1;
+  }
+  return result;
+}
+
+function copyMatrix(matrix) {
+  return matrix.map((row) => row.slice());
+}
+
+function correlationMatrixFromStandardized(standardized) {
   const n = standardized.length;
   if (n < 2) return [];
 
@@ -1136,110 +888,217 @@ function covarianceMatrixFromStandardized(standardized) {
   return product.map((row) => row.map((value) => value / (n - 1)));
 }
 
-function vectorNorm(vector) {
-  return Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
-}
+function jacobiEigenSymmetric(matrix, maxIter = 200, eps = 1e-12) {
+  const n = matrix.length;
+  const A = copyMatrix(matrix);
+  const V = identityMatrix(n);
 
-function multiplyMatrixVector(matrix, vector) {
-  return matrix.map((row) => row.reduce((sum, value, i) => sum + value * vector[i], 0));
-}
+  function maxOffDiagonal(mat) {
+    let p = 0;
+    let q = 1;
+    let maxVal = Math.abs(mat[p][q] ?? 0);
 
-function dot(a, b) {
-  return a.reduce((sum, value, i) => sum + value * b[i], 0);
-}
+    for (let i = 0; i < n; i += 1) {
+      for (let j = i + 1; j < n; j += 1) {
+        const val = Math.abs(mat[i][j]);
+        if (val > maxVal) {
+          maxVal = val;
+          p = i;
+          q = j;
+        }
+      }
+    }
 
-function normalizeVector(vector) {
-  const norm = vectorNorm(vector);
-  if (norm === 0) return vector.map(() => 0);
-  return vector.map((value) => value / norm);
-}
-
-function outerProduct(a, b) {
-  return a.map((av) => b.map((bv) => av * bv));
-}
-
-function subtractMatrices(a, b) {
-  return a.map((row, i) => row.map((value, j) => value - b[i][j]));
-}
-
-function powerIteration(matrix, iterations = 100) {
-  const size = matrix.length;
-  let vector = Array(size).fill(1 / Math.sqrt(size));
-
-  for (let i = 0; i < iterations; i += 1) {
-    const next = multiplyMatrixVector(matrix, vector);
-    vector = normalizeVector(next);
+    return { p, q, maxVal };
   }
 
-  const mv = multiplyMatrixVector(matrix, vector);
-  const eigenvalue = dot(vector, mv);
+  if (n === 1) {
+    return {
+      values: [A[0][0]],
+      vectors: [[1]]
+    };
+  }
 
-  return {
-    eigenvalue,
-    eigenvector: vector
-  };
+  for (let iter = 0; iter < maxIter; iter += 1) {
+    const { p, q, maxVal } = maxOffDiagonal(A);
+    if (maxVal < eps) break;
+
+    const app = A[p][p];
+    const aqq = A[q][q];
+    const apq = A[p][q];
+
+    if (Math.abs(apq) < eps) continue;
+
+    const tau = (aqq - app) / (2 * apq);
+    const t =
+      tau >= 0
+        ? 1 / (tau + Math.sqrt(1 + tau * tau))
+        : -1 / (-tau + Math.sqrt(1 + tau * tau));
+    const c = 1 / Math.sqrt(1 + t * t);
+    const s = t * c;
+
+    for (let i = 0; i < n; i += 1) {
+      if (i !== p && i !== q) {
+        const aip = A[i][p];
+        const aiq = A[i][q];
+        A[i][p] = c * aip - s * aiq;
+        A[p][i] = A[i][p];
+        A[i][q] = c * aiq + s * aip;
+        A[q][i] = A[i][q];
+      }
+    }
+
+    A[p][p] = c * c * app - 2 * s * c * apq + s * s * aqq;
+    A[q][q] = s * s * app + 2 * s * c * apq + c * c * aqq;
+    A[p][q] = 0;
+    A[q][p] = 0;
+
+    for (let i = 0; i < n; i += 1) {
+      const vip = V[i][p];
+      const viq = V[i][q];
+      V[i][p] = c * vip - s * viq;
+      V[i][q] = s * vip + c * viq;
+    }
+  }
+
+  const eigenvalues = [];
+  for (let i = 0; i < n; i += 1) {
+    eigenvalues.push(A[i][i]);
+  }
+
+  const order = eigenvalues
+    .map((value, index) => ({ value, index }))
+    .sort((a, b) => b.value - a.value);
+
+  const values = order.map((item) => item.value);
+  const vectors = Array.from({ length: n }, () => Array(n).fill(0));
+
+  for (let col = 0; col < n; col += 1) {
+    const srcCol = order[col].index;
+    for (let row = 0; row < n; row += 1) {
+      vectors[row][col] = V[row][srcCol];
+    }
+  }
+
+  for (let col = 0; col < n; col += 1) {
+    let maxAbs = -1;
+    let maxRow = 0;
+    for (let row = 0; row < n; row += 1) {
+      const absVal = Math.abs(vectors[row][col]);
+      if (absVal > maxAbs) {
+        maxAbs = absVal;
+        maxRow = row;
+      }
+    }
+    if (vectors[maxRow][col] < 0) {
+      for (let row = 0; row < n; row += 1) {
+        vectors[row][col] *= -1;
+      }
+    }
+  }
+
+  return { values, vectors };
 }
 
-function deflateMatrix(matrix, eigenvalue, eigenvector) {
-  const outer = outerProduct(eigenvector, eigenvector).map((row) => row.map((value) => value * eigenvalue));
-  return subtractMatrices(matrix, outer);
-}
-
-function projectRows(matrix, components) {
-  return matrix.map((row) => components.map((component) => dot(row, component)));
-}
-
-function computePCA2D() {
+function computeExactPCA() {
   const raw = getDataMatrix();
 
   if (!raw.length || !raw[0]?.length) {
     return {
-      explainedVariance: [0, 0],
-      eigenvalues: [0, 0],
+      standardized: [],
+      means: [],
+      sds: [],
+      correlationMatrix: [],
+      eigenvalues: [],
+      sdev: [],
+      rotation: [],
+      objectScoresRaw: [],
       objectScores: [],
-      variableLoadings: []
+      variableLoadings: [],
+      explainedVariance: [],
+      exactBiplot: {
+        objectCoords: [],
+        criterionCoords: []
+      }
     };
   }
 
-  const { standardized } = standardizeMatrix(raw);
-  const cov = covarianceMatrixFromStandardized(standardized);
+  const { standardized, means, sds } = standardizeMatrix(raw);
+  const correlationMatrix = correlationMatrixFromStandardized(standardized);
 
-  if (!cov.length) {
+  if (!correlationMatrix.length) {
     return {
-      explainedVariance: [0, 0],
-      eigenvalues: [0, 0],
+      standardized,
+      means,
+      sds,
+      correlationMatrix: [],
+      eigenvalues: [],
+      sdev: [],
+      rotation: [],
+      objectScoresRaw: [],
       objectScores: [],
-      variableLoadings: []
+      variableLoadings: [],
+      explainedVariance: [],
+      exactBiplot: {
+        objectCoords: [],
+        criterionCoords: []
+      }
     };
   }
 
-  const pc1 = powerIteration(cov, 120);
-  const deflated = deflateMatrix(cov, pc1.eigenvalue, pc1.eigenvector);
-  const pc2 = powerIteration(deflated, 120);
-  const totalVariance = cov.reduce((sum, row, index) => sum + row[index], 0) || 1;
-  const components = [pc1.eigenvector, pc2.eigenvector];
-  const scores = projectRows(standardized, components);
+  const { values, vectors } = jacobiEigenSymmetric(correlationMatrix);
+  const eigenvalues = values.map((value) => Math.max(0, value));
+  const sdev = eigenvalues.map((value) => Math.sqrt(value));
+  const totalVariance = eigenvalues.reduce((sum, value) => sum + value, 0) || 1;
+
+  const scoresMatrix = multiplyMatrices(standardized, vectors);
 
   const objectScores = state.objects.map((obj, index) => ({
     name: obj.name,
-    pc1: roundStat(scores[index]?.[0] ?? 0),
-    pc2: roundStat(scores[index]?.[1] ?? 0)
+    pc1: roundStat(scoresMatrix[index]?.[0] ?? 0),
+    pc2: roundStat(scoresMatrix[index]?.[1] ?? 0)
   }));
 
   const variableLoadings = state.criteria.map((criterion, index) => ({
     criterion: `${criterion.left} ↔ ${criterion.right}`,
-    pc1: roundStat((pc1.eigenvector[index] ?? 0) * Math.sqrt(Math.max(pc1.eigenvalue, 0))),
-    pc2: roundStat((pc2.eigenvector[index] ?? 0) * Math.sqrt(Math.max(pc2.eigenvalue, 0)))
+    pc1: roundStat(vectors[index]?.[0] ?? 0),
+    pc2: roundStat(vectors[index]?.[1] ?? 0)
+  }));
+
+  const scaleMode = 1;
+  const lambda1 = sdev[0] || 1;
+  const lambda2 = sdev[1] || 1;
+
+  const exactObjectCoords = state.objects.map((obj, index) => ({
+    name: obj.name,
+    x: (scoresMatrix[index]?.[0] ?? 0) / Math.pow(lambda1, scaleMode),
+    y: (scoresMatrix[index]?.[1] ?? 0) / Math.pow(lambda2, scaleMode)
+  }));
+
+  const exactCriterionCoords = state.criteria.map((criterion, index) => ({
+    criterion: `${criterion.left} ↔ ${criterion.right}`,
+    left: criterion.left,
+    right: criterion.right,
+    x: (vectors[index]?.[0] ?? 0) * Math.pow(lambda1, 1 - scaleMode),
+    y: (vectors[index]?.[1] ?? 0) * Math.pow(lambda2, 1 - scaleMode)
   }));
 
   return {
-    explainedVariance: [
-      roundStat((pc1.eigenvalue / totalVariance) * 100),
-      roundStat((pc2.eigenvalue / totalVariance) * 100)
-    ],
-    eigenvalues: [roundStat(pc1.eigenvalue), roundStat(pc2.eigenvalue)],
+    standardized,
+    means,
+    sds,
+    correlationMatrix,
+    eigenvalues: eigenvalues.map((value) => roundStat(value)),
+    sdev: sdev.map((value) => roundStat(value)),
+    rotation: vectors,
+    objectScoresRaw: scoresMatrix,
     objectScores,
-    variableLoadings
+    variableLoadings,
+    explainedVariance: eigenvalues.map((value) => roundStat((value / totalVariance) * 100)),
+    exactBiplot: {
+      objectCoords: exactObjectCoords,
+      criterionCoords: exactCriterionCoords
+    }
   };
 }
 
@@ -1247,9 +1106,428 @@ function computeAnalysisResults() {
   return {
     descriptiveStats: computeDescriptiveStats(),
     correlations: computeCorrelationMatrix(),
-    pca: computePCA2D()
+    pca: computeExactPCA()
   };
 }
+
+function activateExactBiplot() {
+  const results = computeAnalysisResults();
+  state.exactBiplot = results;
+  state.plotMode = 'exact';
+  drawPlot();
+  renderAnalysis();
+  renderAutoLayoutNotice();
+  showMessage('Exakter Biplot aus der Matrix berechnet.');
+}
+
+function activateManualMode() {
+  state.plotMode = 'manual';
+  drawPlot();
+  renderAnalysis();
+  renderAutoLayoutNotice();
+  showMessage('Freier Modus aktiviert.');
+}
+
+/* =========================
+   PLOT MANUAL
+========================= */
+
+function drawManualPlot(size) {
+  const padding = getDynamicPlotPadding(size);
+  const inner = Math.max(120, size - padding * 2);
+  const center = size / 2;
+  const radius = inner / 2;
+  const criterionLabelRadius = radius + 18;
+  const criterionLabelNodes = [];
+
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('x', center - radius);
+  bg.setAttribute('y', center - radius);
+  bg.setAttribute('width', inner);
+  bg.setAttribute('height', inner);
+  bg.setAttribute('fill', '#fff');
+  bg.setAttribute('stroke', '#555');
+  plot.appendChild(bg);
+
+  const axisX = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  axisX.setAttribute('x1', center - radius);
+  axisX.setAttribute('y1', center);
+  axisX.setAttribute('x2', center + radius);
+  axisX.setAttribute('y2', center);
+  axisX.setAttribute('stroke', '#c9cdd4');
+  plot.appendChild(axisX);
+
+  const axisY = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  axisY.setAttribute('x1', center);
+  axisY.setAttribute('y1', center - radius);
+  axisY.setAttribute('x2', center);
+  axisY.setAttribute('y2', center + radius);
+  axisY.setAttribute('stroke', '#c9cdd4');
+  plot.appendChild(axisY);
+
+  state.criteria.forEach((criterion) => {
+    const main = polarToCartesian(criterion.angle, radius);
+    const opposite = polarToCartesian(criterion.angle + 180, radius);
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', center + opposite.x);
+    line.setAttribute('y1', center + opposite.y);
+    line.setAttribute('x2', center + main.x);
+    line.setAttribute('y2', center + main.y);
+    line.setAttribute('stroke', '#d9dde3');
+    plot.appendChild(line);
+
+    const leftTextPos = polarToCartesian(criterion.angle + 180, criterionLabelRadius);
+    const rightTextPos = polarToCartesian(criterion.angle, criterionLabelRadius);
+
+    const leftText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    leftText.setAttribute('x', center + leftTextPos.x);
+    leftText.setAttribute('y', center + leftTextPos.y);
+    leftText.setAttribute('font-size', '12');
+    leftText.setAttribute('font-family', 'Arial, sans-serif');
+    leftText.setAttribute('text-anchor', getAnchor(leftTextPos.x));
+    leftText.setAttribute(
+      'dominant-baseline',
+      getCriterionLabelBaseline(leftTextPos.y / Math.max(criterionLabelRadius, 1))
+    );
+    leftText.textContent = criterion.left;
+    plot.appendChild(leftText);
+    criterionLabelNodes.push(leftText);
+
+    const rightText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    rightText.setAttribute('x', center + rightTextPos.x);
+    rightText.setAttribute('y', center + rightTextPos.y);
+    rightText.setAttribute('font-size', '12');
+    rightText.setAttribute('font-family', 'Arial, sans-serif');
+    rightText.setAttribute('text-anchor', getAnchor(rightTextPos.x));
+    rightText.setAttribute(
+      'dominant-baseline',
+      getCriterionLabelBaseline(rightTextPos.y / Math.max(criterionLabelRadius, 1))
+    );
+    rightText.textContent = criterion.right;
+    plot.appendChild(rightText);
+    criterionLabelNodes.push(rightText);
+  });
+
+  resolveCriterionLabelCollisions(criterionLabelNodes, size);
+
+  const points = state.objects.map((obj) => {
+    const coords = getObjectCoordinates(obj);
+    return {
+      name: obj.name,
+      x: center + coords.x * radius * 0.95,
+      y: center + coords.y * radius * 0.95
+    };
+  });
+
+  const labelPlacements = placeObjectLabels(points, size, center - radius);
+
+  points.forEach((point, index) => {
+    const pointNode = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    pointNode.setAttribute('x', point.x - 3);
+    pointNode.setAttribute('y', point.y - 3);
+    pointNode.setAttribute('width', 6);
+    pointNode.setAttribute('height', 6);
+    pointNode.setAttribute('fill', '#111');
+    plot.appendChild(pointNode);
+
+    const placement = labelPlacements[index];
+
+    if (placement.connector) {
+      const connector = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      connector.setAttribute('x1', point.x);
+      connector.setAttribute('y1', point.y);
+      connector.setAttribute('x2', placement.labelX);
+      connector.setAttribute('y2', placement.labelY - 4);
+      connector.setAttribute('stroke', '#b9bec7');
+      connector.setAttribute('stroke-width', '1');
+      plot.appendChild(connector);
+    }
+
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', placement.labelX);
+    label.setAttribute('y', placement.labelY);
+    label.setAttribute('font-size', '12');
+    label.setAttribute('font-family', 'Arial, sans-serif');
+    label.setAttribute('text-anchor', placement.anchor);
+    label.textContent = point.name;
+    plot.appendChild(label);
+  });
+
+  const dim1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  dim1.setAttribute('x', size - 18);
+  dim1.setAttribute('y', center + 12);
+  dim1.setAttribute('font-size', '12');
+  dim1.setAttribute('transform', `rotate(90 ${size - 18} ${center + 12})`);
+  dim1.textContent = 'Dim 1';
+  plot.appendChild(dim1);
+
+  const dim2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  dim2.setAttribute('x', center - 22);
+  dim2.setAttribute('y', size - 18);
+  dim2.setAttribute('font-size', '12');
+  dim2.textContent = 'Dim 2';
+  plot.appendChild(dim2);
+}
+
+/* =========================
+   PLOT EXACT
+========================= */
+
+function mapPlotValue(value, min, max, targetMin, targetMax) {
+  if (max === min) return (targetMin + targetMax) / 2;
+  return targetMin + ((value - min) / (max - min)) * (targetMax - targetMin);
+}
+
+function getExactPlotBounds(exactResults) {
+  const objectCoords = exactResults?.pca?.exactBiplot?.objectCoords ?? [];
+  const criterionCoords = exactResults?.pca?.exactBiplot?.criterionCoords ?? [];
+  const allPoints = [
+    ...objectCoords.map((p) => [p.x, p.y]),
+    ...criterionCoords.map((p) => [p.x, p.y]),
+    [0, 0]
+  ];
+
+  const xs = allPoints.map((p) => p[0]);
+  const ys = allPoints.map((p) => p[1]);
+
+  let minX = Math.min(...xs);
+  let maxX = Math.max(...xs);
+  let minY = Math.min(...ys);
+  let maxY = Math.max(...ys);
+
+  if (minX === maxX) {
+    minX -= 1;
+    maxX += 1;
+  }
+  if (minY === maxY) {
+    minY -= 1;
+    maxY += 1;
+  }
+
+  const padX = (maxX - minX) * 0.18;
+  const padY = (maxY - minY) * 0.18;
+
+  return {
+    minX: minX - padX,
+    maxX: maxX + padX,
+    minY: minY - padY,
+    maxY: maxY + padY
+  };
+}
+
+function exactCoordToSvg(x, y, bounds, size, padding) {
+  const px = mapPlotValue(x, bounds.minX, bounds.maxX, padding, size - padding);
+  const py = mapPlotValue(y, bounds.minY, bounds.maxY, size - padding, padding);
+  return { x: px, y: py };
+}
+
+function drawExactPlot(size) {
+  if (!state.exactBiplot) {
+    state.exactBiplot = computeAnalysisResults();
+  }
+
+  const exactResults = state.exactBiplot;
+  const objectCoords = exactResults?.pca?.exactBiplot?.objectCoords ?? [];
+  const criterionCoords = exactResults?.pca?.exactBiplot?.criterionCoords ?? [];
+
+  const padding = getDynamicPlotPadding(size);
+  const bounds = getExactPlotBounds(exactResults);
+
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('x', padding);
+  bg.setAttribute('y', padding);
+  bg.setAttribute('width', size - padding * 2);
+  bg.setAttribute('height', size - padding * 2);
+  bg.setAttribute('fill', '#fff');
+  bg.setAttribute('stroke', '#555');
+  plot.appendChild(bg);
+
+  const origin = exactCoordToSvg(0, 0, bounds, size, padding);
+
+  const axisX = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  axisX.setAttribute('x1', padding);
+  axisX.setAttribute('y1', origin.y);
+  axisX.setAttribute('x2', size - padding);
+  axisX.setAttribute('y2', origin.y);
+  axisX.setAttribute('stroke', '#c9cdd4');
+  plot.appendChild(axisX);
+
+  const axisY = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  axisY.setAttribute('x1', origin.x);
+  axisY.setAttribute('y1', padding);
+  axisY.setAttribute('x2', origin.x);
+  axisY.setAttribute('y2', size - padding);
+  axisY.setAttribute('stroke', '#c9cdd4');
+  plot.appendChild(axisY);
+
+  const criterionLabelNodes = [];
+
+  criterionCoords.forEach((criterion) => {
+    const end = exactCoordToSvg(criterion.x, criterion.y, bounds, size, padding);
+    const start = exactCoordToSvg(-criterion.x, -criterion.y, bounds, size, padding);
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', start.x);
+    line.setAttribute('y1', start.y);
+    line.setAttribute('x2', end.x);
+    line.setAttribute('y2', end.y);
+    line.setAttribute('stroke', '#d9dde3');
+    plot.appendChild(line);
+
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    arrow.setAttribute('x1', origin.x);
+    arrow.setAttribute('y1', origin.y);
+    arrow.setAttribute('x2', end.x);
+    arrow.setAttribute('y2', end.y);
+    arrow.setAttribute('stroke', '#b33a3a');
+    arrow.setAttribute('stroke-width', '2');
+    plot.appendChild(arrow);
+
+    const leftLabelPos = exactCoordToSvg(-criterion.x * 1.08, -criterion.y * 1.08, bounds, size, padding);
+    const rightLabelPos = exactCoordToSvg(criterion.x * 1.08, criterion.y * 1.08, bounds, size, padding);
+
+    const leftText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    leftText.setAttribute('x', leftLabelPos.x);
+    leftText.setAttribute('y', leftLabelPos.y);
+    leftText.setAttribute('font-size', '12');
+    leftText.setAttribute('font-family', 'Arial, sans-serif');
+    leftText.setAttribute('text-anchor', getAnchor(leftLabelPos.x - origin.x));
+    leftText.setAttribute('dominant-baseline', 'middle');
+    leftText.textContent = criterion.left;
+    plot.appendChild(leftText);
+    criterionLabelNodes.push(leftText);
+
+    const rightText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    rightText.setAttribute('x', rightLabelPos.x);
+    rightText.setAttribute('y', rightLabelPos.y);
+    rightText.setAttribute('font-size', '12');
+    rightText.setAttribute('font-family', 'Arial, sans-serif');
+    rightText.setAttribute('text-anchor', getAnchor(rightLabelPos.x - origin.x));
+    rightText.setAttribute('dominant-baseline', 'middle');
+    rightText.textContent = criterion.right;
+    plot.appendChild(rightText);
+    criterionLabelNodes.push(rightText);
+  });
+
+  resolveCriterionLabelCollisions(criterionLabelNodes, size);
+
+  const points = objectCoords.map((obj) => {
+    const p = exactCoordToSvg(obj.x, obj.y, bounds, size, padding);
+    return {
+      name: obj.name,
+      x: p.x,
+      y: p.y
+    };
+  });
+
+  const labelPlacements = placeObjectLabels(points, size, padding);
+
+  points.forEach((point, index) => {
+    const pointNode = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    pointNode.setAttribute('x', point.x - 3);
+    pointNode.setAttribute('y', point.y - 3);
+    pointNode.setAttribute('width', 6);
+    pointNode.setAttribute('height', 6);
+    pointNode.setAttribute('fill', '#111');
+    plot.appendChild(pointNode);
+
+    const placement = labelPlacements[index];
+
+    if (placement.connector) {
+      const connector = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      connector.setAttribute('x1', point.x);
+      connector.setAttribute('y1', point.y);
+      connector.setAttribute('x2', placement.labelX);
+      connector.setAttribute('y2', placement.labelY - 4);
+      connector.setAttribute('stroke', '#b9bec7');
+      connector.setAttribute('stroke-width', '1');
+      plot.appendChild(connector);
+    }
+
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', placement.labelX);
+    label.setAttribute('y', placement.labelY);
+    label.setAttribute('font-size', '12');
+    label.setAttribute('font-family', 'Arial, sans-serif');
+    label.setAttribute('text-anchor', placement.anchor);
+    label.textContent = point.name;
+    plot.appendChild(label);
+  });
+
+  const pc1Explained = exactResults?.pca?.explainedVariance?.[0] ?? 0;
+  const pc2Explained = exactResults?.pca?.explainedVariance?.[1] ?? 0;
+
+  const dim1 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  dim1.setAttribute('x', size - 18);
+  dim1.setAttribute('y', origin.y + 12);
+  dim1.setAttribute('font-size', '12');
+  dim1.setAttribute('transform', `rotate(90 ${size - 18} ${origin.y + 12})`);
+  dim1.textContent = `PC2 (${pc2Explained}%)`;
+  plot.appendChild(dim1);
+
+  const dim2 = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  dim2.setAttribute('x', origin.x + 8);
+  dim2.setAttribute('y', size - 18);
+  dim2.setAttribute('font-size', '12');
+  dim2.textContent = `PC1 (${pc1Explained}%)`;
+  plot.appendChild(dim2);
+}
+
+function drawPlot() {
+  if (!plot || !plotWrapper || !plotSizeInput) return;
+
+  const size = Number(plotSizeInput.value);
+  plotWrapper.style.width = `${size}px`;
+  plotWrapper.style.height = `${size}px`;
+  plot.setAttribute('viewBox', `0 0 ${size} ${size}`);
+  plot.innerHTML = '';
+
+  if (state.plotMode === 'exact') {
+    drawExactPlot(size);
+  } else {
+    drawManualPlot(size);
+  }
+}
+
+function exportState() {
+  return {
+    meta: {
+      app: 'BiPlotteR – Prototyp 01',
+      version: 3,
+      exportedAt: new Date().toISOString()
+    },
+    state: {
+      criteria: state.criteria,
+      objects: state.objects,
+      settings: state.settings
+    }
+  };
+}
+
+function handleImportFile(file) {
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      loadState(parsed);
+      showMessage(`JSON erfolgreich geladen: ${file.name}`);
+    } catch (error) {
+      showMessage(`Import fehlgeschlagen: ${error.message}`, 'error');
+    }
+  };
+
+  reader.onerror = () => {
+    showMessage('Datei konnte nicht gelesen werden.', 'error');
+  };
+
+  reader.readAsText(file, 'utf-8');
+}
+
+/* =========================
+   ANALYSE RENDERING
+========================= */
 
 function renderDescriptiveStatsTable(stats) {
   const target = document.getElementById('statsTableWrap');
@@ -1406,30 +1684,41 @@ function renderPCATables(pca) {
 }
 
 function renderAnalysis() {
-  const results = computeAnalysisResults();
+  const results = state.exactBiplot ?? computeAnalysisResults();
   renderDescriptiveStatsTable(results.descriptiveStats);
   renderCorrelationTable(results.correlations);
   renderPCATables(results.pca);
 }
 
 function exportAnalysisResults() {
+  const results = state.exactBiplot ?? computeAnalysisResults();
+
   return {
     meta: {
       app: 'BiPlotteR – Prototyp 01',
       exportType: 'analysis',
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString()
     },
     state: {
       criteria: state.criteria,
       objects: state.objects
     },
-    results: computeAnalysisResults()
+    plotMode: state.plotMode,
+    results
   };
 }
 
 if (autoArrangeBtn) {
   autoArrangeBtn.addEventListener('click', handleAutoArrangeClick);
+}
+
+if (exactBiplotBtn) {
+  exactBiplotBtn.addEventListener('click', activateExactBiplot);
+}
+
+if (freeModeBtn) {
+  freeModeBtn.addEventListener('click', activateManualMode);
 }
 
 window.setTimeout(() => {
@@ -1449,6 +1738,7 @@ document.getElementById('addCriterionBtn')?.addEventListener('click', () => {
   });
 
   state.objects.forEach((obj) => obj.values.push(3));
+  invalidateExactMode();
   renderAll();
 });
 
@@ -1457,6 +1747,7 @@ document.getElementById('addObjectBtn')?.addEventListener('click', () => {
     name: `Objekt ${state.objects.length + 1}`,
     values: Array(state.criteria.length).fill(3)
   });
+  invalidateExactMode();
   renderAll();
 });
 
