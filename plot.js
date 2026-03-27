@@ -81,22 +81,32 @@
     let maxX = Math.max(...xs);
     let minY = Math.min(...ys);
     let maxY = Math.max(...ys);
-    // In the unlikely case of a singular spread, broaden the range
-    if (minX === maxX) {
+    // When there is no spread, create a default range
+    if (minX === maxX && minY === maxY) {
       minX -= 1;
       maxX += 1;
-    }
-    if (minY === maxY) {
       minY -= 1;
       maxY += 1;
     }
-    const padX = (maxX - minX) * 0.18;
-    const padY = (maxY - minY) * 0.18;
+    // Use a symmetrical bounding box around the origin so that
+    // positive and negative directions have equal visual weight.  This
+    // prevents slight shifts when data is skewed.  Compute the
+    // maximum absolute value across both axes and create a square
+    // bounding box of [-maxAbs, maxAbs] on each dimension.
+    const maxAbsX = Math.max(Math.abs(minX), Math.abs(maxX));
+    const maxAbsY = Math.max(Math.abs(minY), Math.abs(maxY));
+    const maxAbs = Math.max(maxAbsX, maxAbsY);
+    minX = -maxAbs;
+    maxX = maxAbs;
+    minY = -maxAbs;
+    maxY = maxAbs;
+    // Apply the same padding on both axes (18% of the total width).
+    const pad = (maxX - minX) * 0.18;
     return {
-      minX: minX - padX,
-      maxX: maxX + padX,
-      minY: minY - padY,
-      maxY: maxY + padY
+      minX: minX - pad,
+      maxX: maxX + pad,
+      minY: minY - pad,
+      maxY: maxY + pad
     };
   };
 
@@ -163,21 +173,26 @@
     state.criteria.forEach((criterion) => {
       const main = Utils.polarToCartesian(criterion.angle, radius);
       const opposite = Utils.polarToCartesian(criterion.angle + 180, radius);
-      // Negative half line (from centre to opposite) – red if enabled
+      // Negative half line (from centre to opposite).  When the
+      // markNegativeLoadingsRed toggle is active the negative side is
+      // coloured red, otherwise it uses the same base colour as the
+      // positive side.  We default to a dark tone (#111) so that both
+      // halves appear black rather than grey.
       const negLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       negLine.setAttribute('x1', center);
       negLine.setAttribute('y1', center);
       negLine.setAttribute('x2', center + opposite.x);
       negLine.setAttribute('y2', center + opposite.y);
-      negLine.setAttribute('stroke', state.settings.markNegativeLoadingsRed ? '#d11a2a' : '#d9dde3');
+      negLine.setAttribute('stroke', state.settings.markNegativeLoadingsRed ? '#d11a2a' : '#111');
       plot.appendChild(negLine);
-      // Positive half line (from centre to main) – grey
+      // Positive half line (from centre to main).  The positive side
+      // always uses the base colour and never turns red.
       const posLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       posLine.setAttribute('x1', center);
       posLine.setAttribute('y1', center);
       posLine.setAttribute('x2', center + main.x);
       posLine.setAttribute('y2', center + main.y);
-      posLine.setAttribute('stroke', '#d9dde3');
+      posLine.setAttribute('stroke', '#111');
       plot.appendChild(posLine);
       // Left and right label positions (beyond the ends of the axis)
       const leftTextPos = Utils.polarToCartesian(criterion.angle + 180, criterionLabelRadius);
@@ -313,21 +328,25 @@
     criterionCoords.forEach((criterion) => {
       const end = Plot.exactCoordToSvg(criterion.x, criterion.y, bounds, size, padding);
       const start = Plot.exactCoordToSvg(-criterion.x, -criterion.y, bounds, size, padding);
-      // Negative half: line from start to origin
+      // Negative half: line from start to origin.  When the
+      // markNegativeLoadingsRed toggle is active the negative side
+      // becomes red, otherwise it uses the same base colour as the
+      // positive side.
       const neg = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       neg.setAttribute('x1', start.x);
       neg.setAttribute('y1', start.y);
       neg.setAttribute('x2', origin.x);
       neg.setAttribute('y2', origin.y);
-      neg.setAttribute('stroke', state.settings.markNegativeLoadingsRed ? '#d11a2a' : '#d9dde3');
+      neg.setAttribute('stroke', state.settings.markNegativeLoadingsRed ? '#d11a2a' : '#111');
       plot.appendChild(neg);
-      // Positive half: line from origin to end
+      // Positive half: line from origin to end.  Always uses the base
+      // colour and never turns red.
       const pos = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       pos.setAttribute('x1', origin.x);
       pos.setAttribute('y1', origin.y);
       pos.setAttribute('x2', end.x);
       pos.setAttribute('y2', end.y);
-      pos.setAttribute('stroke', '#d9dde3');
+      pos.setAttribute('stroke', '#111');
       plot.appendChild(pos);
       // Arrow for the positive direction (kept red/dark as in original)
       const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'line');
