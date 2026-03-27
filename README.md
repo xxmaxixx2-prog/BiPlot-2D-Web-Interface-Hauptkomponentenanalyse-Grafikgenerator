@@ -2,9 +2,8 @@
 Link zum sofort nutzen:
 https://xxmaxixx2-prog.github.io/BiPlot-2D-Web-Interface-Hauptkomponentenanalyse-Grafikgenerator/
 
-<img width="1229" height="1257" alt="Github readme beispielbild demo v1" src="https://github.com/user-attachments/assets/bc0c9689-1822-42a8-95b5-93b4a6d9502b" />
+<img width="1552" height="1299" alt="image" src="https://github.com/user-attachments/assets/3c48803f-deb3-4946-81ed-e2de95ade8a5" />
 
-<img width="1091" height="1297" alt="Github readme beispielbild demo v2" src="https://github.com/user-attachments/assets/71879bc6-c7d0-4e57-979e-acd275bc68ff" />
 
 ## Was ist das?
 Dieses Tool hilft dabei, ein Repertory Grid bzw. einen einfachen Biplot um z.B Berufsvergleiche zu erstellen.
